@@ -157,6 +157,10 @@ export default function ExpenseDrawer({ open, onClose, siteId, sites, categories
 
   const submitExpense = async () => {
     if (!validate()) return;
+    if (attachments.length === 0) {
+      setBanner(expenseId ? 'A receipt is required — attach one below before submitting.' : 'A receipt is required. Save as draft first, then attach one before submitting.');
+      return;
+    }
     setSubmitting(true);
     setBanner('');
     try {
@@ -331,7 +335,9 @@ export default function ExpenseDrawer({ open, onClose, siteId, sites, categories
         </div>
 
         <div>
-          <label className={fieldLabelClass}>Receipt</label>
+          <label className={fieldLabelClass}>
+            Receipt <span className="text-red-500">*</span> (required to submit)
+          </label>
           {!expenseId ? (
             <p className="text-[11px] text-gray-400">Save as draft first to attach a receipt.</p>
           ) : (

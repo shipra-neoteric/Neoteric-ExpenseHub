@@ -119,7 +119,7 @@ expense already belongs to.
 Permissions are explicit strings on each user (`site_expense.*`); role labels
 below are just seed presets, never checked directly by the server.
 
-| Permission | Front Desk Exec. | Site Approver | Finance | Master Admin |
+| Permission | Front Desk Exec. | AGM / Site Approver | Finance | Master Admin |
 |---|:---:|:---:|:---:|:---:|
 | `view` | ✓ | ✓ | ✓ | ✓ |
 | `create` | ✓ | | | ✓ |
@@ -134,6 +134,11 @@ below are just seed presets, never checked directly by the server.
 | `master_manage` | | | | ✓ |
 | `user_scope_manage` | | | | ✓ |
 | `view_all_sites` | | | ✓ (seeded) | ✓ |
+
+`AGM` and `SITE_APPROVER` are two role-preset labels mapped to the identical
+permission bundle — AGM is the current name going forward; SITE_APPROVER
+still works for anyone already assigned it. See ASSUMPTIONS.md for why
+rejecting an expense as AGM still deducts the fund (and how to reverse one).
 
 Every request re-checks **both** the permission and that the caller is
 actively assigned to the site in question (or holds `view_all_sites`) —
@@ -150,15 +155,23 @@ plus an httpOnly refresh cookie.
 - `GET/POST /categories`, `PATCH /categories/:id`
 - `GET/PUT /policies` (`?siteId=` or org default)
 - `GET /funds/periods`, `.../balance`, `.../ledger`; `POST /funds/opening-allocation`,
-  `.../top-up`, `.../adjustment`, `.../close`, `.../reopen`
+  `.../top-up`, `.../adjustment`, `.../close`, `.../reopen`, `.../rollover`
+  (manual trigger for the monthly rollover, JWT + `master_manage`)
 - `GET /expenses`, `GET/PATCH/DELETE /expenses/:id`, `POST /expenses`,
   `.../submit`, `.../approve`, `.../return`, `.../reject`, `.../void`
 - `POST/GET/DELETE /expenses/:expenseId/attachments[/:attachmentId]`
 - `GET /dashboard/summary?siteId=&periodId=`
 - `GET/POST /assignments`, `POST /assignments/:id/deactivate`
-- `GET/POST /users`, `PATCH /users/:id`
+- `GET/POST /users`, `PATCH /users/:id`, `DELETE /users/:id` (soft-deactivate)
 - `GET /reports/summary`, `/reports/export.csv`, `/reports/export.pdf`
 - `POST /imports/dry-run`, `POST /imports/commit` (legacy sheet import, CSV)
+- `POST /admin/monthly-rollover` — machine-only (static `X-Automation-Secret`
+  header, not a user JWT); see DEPLOYMENT.md for the scheduler setup
+- `POST /slack/interactions` — Slack's own servers only (signature-verified,
+  not a user JWT); see SLACK_SETUP.md
+- `GET /public/attachments/:attachmentId?token=...` — no auth; a short-lived
+  signed link scoped to one attachment, used only so Slack can render a
+  receipt preview
 
 Errors are always `{ error: { code, message, details? } }` with a human-
 actionable `message` (e.g. `Fund period is closed`, `Insufficient available
@@ -173,14 +186,24 @@ balance for this expense`).
 - Details/approval drawer: state- and permission-aware actions (approve,
   return, reject, void, delete draft, edit-and-resubmit), full activity
   timeline, SweetAlert2 confirmations everywhere (no native `alert`/`confirm`).
+  Rejecting deducts the fund (money was already spent); Void/Reverse works on
+  either an approved or a rejected-and-deducted expense.
+- A receipt is mandatory to submit any expense — no category/amount
+  exceptions.
 - Funds/Imprest: opening allocation, top-up, signed adjustment, period close
   (blocked while pending/returned items exist) with optional carry-forward,
-  Master-only reopen.
+  Master-only reopen, and an automatic **monthly rollover** (carries the
+  balance forward, adds each site's configured fixed monthly amount) —
+  manual button for Master, or a scheduled external trigger (DEPLOYMENT.md).
 - Master: sites, categories (receipt rule, active/inactive — never hard
-  deleted), fund policy (org default + per-site override), legacy sheet import
-  (dry-run + commit, idempotent, review queue for bad rows).
-- User Management: users, role-preset permissions, many-to-many site
-  assignments with deactivation (history preserved).
+  deleted), fund policy (org default + per-site override, approvers), legacy
+  sheet import (dry-run + commit, idempotent, review queue for bad rows).
+- User Management: create/edit/soft-delete users, role-preset permissions
+  (including the AGM approver role), many-to-many site assignments with
+  deactivation (history preserved).
+- Optional Slack integration: AGM approvers get a DM with full expense
+  details, receipt preview, and Approve/Reject buttons on submission — see
+  SLACK_SETUP.md. Off by default; nothing else depends on it being configured.
 - Reports: filtered summary, category-wise spend, CSV export, corporate-navy
   PDF export (`Rs.` prefix, generation timestamp/timezone/filters).
 - Audit: every financial/workflow mutation writes an `AuditEvent`
@@ -190,8 +213,10 @@ balance for this expense`).
 
 Multi-level/amount-based approval chains, OCR receipt extraction, direct
 bank/UPI reconciliation, ERP posting, budget forecasting/anomaly detection,
-Slack/agent summaries, native offline queue, recurring expenses/vendor master,
-and in-app notifications (the model/audit trail is ready for them — see
+native offline queue, recurring expenses/vendor master, and in-app
+notifications (Slack DMs are implemented — see above — but there is no
+in-app or email notification channel; the model/audit trail is ready for them
+— see
 ASSUMPTIONS.md's known-limitations note on `LOW_BALANCE_THRESHOLD_PAISE`,
 which is wired into config but not yet triggering a real notification channel
 since none exists in this greenfield app).
@@ -260,8 +285,9 @@ Using the seeded accounts (`ASSUMPTIONS.md`):
 
 Multi-level/amount-based approval chains · OCR receipt extraction · direct
 bank/UPI reconciliation · accounting/ERP posting · VMS/IMS-linked expenses ·
-budget forecasting & anomaly detection · Slack/agent summaries · native
-mobile offline queue · recurring expenses & vendor master · real in-app/email
-notifications (submission/approval/low-balance) · exact server-side
+budget forecasting & anomaly detection · native mobile offline queue ·
+recurring expenses & vendor master · real in-app/email notifications
+(submission/approval/low-balance — Slack DM notification is implemented, see
+SLACK_SETUP.md, but there is no in-app or email channel) · exact server-side
 pagination under the receipt-status filter (see ASSUMPTIONS.md) · fuzzy
 duplicate matching.

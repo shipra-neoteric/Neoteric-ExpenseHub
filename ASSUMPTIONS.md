@@ -3,6 +3,81 @@
 This file records every default chosen where the spec left a business decision
 open, so Master can revisit them without reading code.
 
+## Post-L1 changes (AGM role, mandatory receipts, monthly rollover, Slack)
+
+Added after the initial L1 build, per direct request:
+
+- **AGM role**: a new role preset (`ROLE_PRESETS.AGM`) with the exact same
+  permission bundle as the existing `SITE_APPROVER` preset — it's the same
+  single approval step, just a label Master can now assign going forward.
+  `SITE_APPROVER` still works for any already-assigned users; nothing was
+  removed.
+- **Rejecting now deducts the fund.** Previously only `APPROVED` expenses
+  posted a ledger entry; `REJECTED` did not. Now `rejectExpense` posts the
+  same kind of `EXPENSE_POSTED` deduction an approval would, because the
+  money was already spent in the real world regardless of the review
+  outcome — a rejection is a judgment about legitimacy, not proof the cash
+  never left the register. The expense's **status** still shows `Rejected`
+  (for accountability); only the fund math changed. A rejected-and-deducted
+  expense can be reversed later via the same **Void/Reverse** action already
+  used for approved expenses — `voidExpense` now accepts either status, gated
+  on the expense actually having a `ledgerEntryId` to reverse. The
+  `approvedSpend` field/label (dashboard "Approved Spend" KPI, report totals)
+  is unchanged in name but now means "posted spend regardless of review
+  outcome" — documented in `fundService.js` rather than renamed everywhere,
+  to avoid an unrelated mass rename.
+- **Receipts are now unconditionally required to submit** — the earlier
+  category-rule / policy-threshold nuance (`RECEIPT_RULE`,
+  `receiptRequiredThresholdPaise`) still exists in the schema but no longer
+  gates anything; every submission needs at least one attachment, full stop.
+- **Monthly fund rollover**: each site's `ExpensePolicy.defaultAllocationPaise`
+  (the existing "Default Allocation" field, previously just a suggested
+  number for the manual opening-allocation form) is now also read as that
+  site's **fixed monthly amount**. `fundService.rolloverDueSites` closes the
+  prior period, carries its balance forward (even if zero or negative — unlike
+  a manual close, which only carries forward a positive balance, because
+  unattended automation must never leave a site with no open period to keep
+  operating in), and adds the new month's fixed amount on top. Idempotent:
+  a site already on the current month's period label is left untouched, so
+  the external trigger is safe to call more than once (see below). A site
+  with `defaultAllocationPaise` of 0/unset is left alone entirely — this
+  feature is opt-in per site via that one existing field, not a forced
+  behavior change for sites Master hasn't configured for it.
+- **Trigger mechanism**: no reliable in-process scheduler exists on Render's
+  free tier (the web service can spin down when idle), so this is triggered
+  either manually (Master → Funds → "Run Monthly Rollover", normal session
+  auth) or by an external HTTP call to `POST /api/admin/monthly-rollover`,
+  authenticated by a static `AUTOMATION_SECRET` header instead of a user JWT
+  (no human is logged in for a cron job) — see `DEPLOYMENT.md` section 7 for
+  the actual scheduler setup (cron-job.org or GitHub Actions). That endpoint
+  attributes each organization's automated ledger/audit entries to that org's
+  first active Master Admin, since every ledger entry needs a real `User` to
+  attribute to and there is no logged-in actor for a scheduled call.
+- **Slack approvals**: optional, off unless `SLACK_BOT_TOKEN` and
+  `SLACK_SIGNING_SECRET` are set (see `SLACK_SETUP.md`). On submit, every
+  site policy's `approverUserIds` with a `slackEmail` set gets a Slack DM
+  with the full expense detail and an inline receipt image (or a link, for
+  PDFs) plus Approve/Reject buttons. Approve acts immediately; Reject opens a
+  Slack modal to collect the (still-mandatory) reason before deducting the
+  fund exactly as described above. This is deliberately **best-effort and
+  non-blocking** — a Slack failure (misconfigured token, network issue, no
+  `slackEmail` set) is logged, never surfaces to the submitter, and never
+  rolls back or delays the actual submission, since the notification is a
+  convenience layered on top of the real workflow, not a dependency of it.
+  Receipt images are exposed to Slack's own servers (which fetch the URL
+  server-to-server to render the DM preview, not through the viewer's
+  browser session) via a short-lived HMAC-signed link
+  (`/api/public/attachments/:id?token=...`, `signedLink.js`, 24h expiry,
+  one attachment per token) — deliberately separate from the authenticated
+  `/api/expenses/:id/attachments/:id` route used everywhere else in the app.
+- **User "delete" is a soft-deactivate**, consistent with sites/categories/
+  assignments elsewhere in the app: a `User` is referenced by
+  `Expense.createdBy/approvedBy`, ledger `createdBy`, and audit `actorId`
+  across the historical record, so hard-deleting one would either break
+  those references or silently rewrite history. `DELETE /users/:id` sets
+  `isActive: false` (blocks login immediately) rather than removing the
+  document. A user cannot deactivate their own account through this endpoint.
+
 ## UI style guide reconciliation
 
 Partway through the build, a file named `UI_STYLE_GUIDE.md` appeared in the

@@ -1,19 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import Swal from 'sweetalert2';
-import { Plus, UserPlus } from 'lucide-react';
+import { Plus, UserPlus, Pencil, Trash2 } from 'lucide-react';
 import api, { apiErrorMessage } from '../api/client';
 import ThemedSelect from '../components/common/ThemedSelect';
+import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../theme/ThemeContext';
 import UserDrawer from '../components/drawers/UserDrawer';
 
 export default function UserManagement() {
   const { getThemeColor } = useTheme();
+  const { user: currentUser } = useAuth();
   const [users, setUsers] = useState([]);
   const [sites, setSites] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [selectedUserId, setSelectedUserId] = useState('');
   const [selectedSiteId, setSelectedSiteId] = useState('');
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState(null);
 
   const loadAll = async () => {
     const [u, s, a] = await Promise.all([api.get('/users'), api.get('/sites'), api.get('/assignments')]);
@@ -41,6 +44,34 @@ export default function UserManagement() {
     loadAll();
   };
 
+  const openEdit = (u) => {
+    setEditingUser(u);
+    setDrawerOpen(true);
+  };
+
+  const openCreate = () => {
+    setEditingUser(null);
+    setDrawerOpen(true);
+  };
+
+  const deleteUser = async (u) => {
+    const ok = await Swal.fire({
+      title: `Delete ${u.name}?`,
+      text: 'This deactivates their login access. Their authorship on past expenses, approvals, and ledger entries is preserved.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Delete',
+      confirmButtonColor: '#dc2626',
+    });
+    if (!ok.isConfirmed) return;
+    try {
+      await api.delete(`/users/${u._id}`);
+      loadAll();
+    } catch (err) {
+      Swal.fire({ icon: 'error', title: 'Could not delete user', text: apiErrorMessage(err), confirmButtonColor: 'var(--theme-primary)' });
+    }
+  };
+
   return (
     <div className="space-y-8">
       <div>
@@ -51,7 +82,7 @@ export default function UserManagement() {
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Users</h2>
-          <button onClick={() => setDrawerOpen(true)} style={{ backgroundColor: getThemeColor() }} className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition hover:opacity-90">
+          <button onClick={openCreate} style={{ backgroundColor: getThemeColor() }} className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition hover:opacity-90">
             <Plus className="h-4 w-4" /> New User
           </button>
         </div>
@@ -63,6 +94,7 @@ export default function UserManagement() {
                 <th className="px-6 py-3 text-left font-medium">Email</th>
                 <th className="px-6 py-3 text-left font-medium">Role</th>
                 <th className="px-6 py-3 text-left font-medium">Status</th>
+                <th className="px-6 py-3 font-medium" />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -75,6 +107,18 @@ export default function UserManagement() {
                     <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${u.isActive ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}`}>
                       {u.isActive ? 'Active' : 'Inactive'}
                     </span>
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <button onClick={() => openEdit(u)} aria-label={`Edit ${u.name}`} className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200">
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                      {String(u._id) !== String(currentUser?._id || currentUser?.id) && (
+                        <button onClick={() => deleteUser(u)} aria-label={`Delete ${u.name}`} className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -132,6 +176,7 @@ export default function UserManagement() {
 
       <UserDrawer
         open={drawerOpen}
+        editUser={editingUser}
         onClose={() => setDrawerOpen(false)}
         onSaved={() => {
           setDrawerOpen(false);

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import Swal from 'sweetalert2';
-import { Loader2, PlusCircle, ArrowUpCircle, Sliders, Lock, Unlock } from 'lucide-react';
+import { Loader2, PlusCircle, ArrowUpCircle, Sliders, Lock, Unlock, RefreshCw } from 'lucide-react';
 import api, { apiErrorMessage } from '../api/client';
 import useSites from '../hooks/useSites';
 import ThemedSelect from '../components/common/ThemedSelect';
@@ -100,6 +100,27 @@ export default function Funds() {
     }
   };
 
+  const runRollover = async () => {
+    const ok = await Swal.fire({
+      title: 'Run monthly rollover now?',
+      text: "Rolls every site's fund into the current month: leftover balance carries forward and each site's configured monthly amount is added. Sites already on the current month are left untouched.",
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonColor: 'var(--theme-primary)',
+      confirmButtonText: 'Run Now',
+    });
+    if (!ok.isConfirmed) return;
+    try {
+      const { data } = await api.post('/funds/rollover');
+      const lines = data.results.map((r) => `${r.site}: ${r.outcome}`).join('<br/>');
+      await Swal.fire({ icon: 'success', title: 'Rollover complete', html: lines || 'No sites configured with a monthly amount.', confirmButtonColor: 'var(--theme-primary)' });
+      loadPeriods();
+      loadPeriodData();
+    } catch (err) {
+      Swal.fire({ icon: 'error', title: 'Rollover failed', text: apiErrorMessage(err), confirmButtonColor: 'var(--theme-primary)' });
+    }
+  };
+
   const reopenPeriod = async () => {
     const ok = await Swal.fire({ title: 'Reopen this period?', icon: 'warning', showCancelButton: true, confirmButtonColor: 'var(--theme-primary)', confirmButtonText: 'Reopen' });
     if (!ok.isConfirmed) return;
@@ -134,6 +155,11 @@ export default function Funds() {
         {canManage && !isOpenPeriod && (
           <button onClick={() => setAllocationDrawerOpen(true)} style={{ backgroundColor: getThemeColor() }} className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition hover:opacity-90">
             <PlusCircle className="h-4 w-4" /> Open New Period
+          </button>
+        )}
+        {canReopen && (
+          <button onClick={runRollover} className="flex items-center gap-2 rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
+            <RefreshCw className="h-4 w-4" /> Run Monthly Rollover
           </button>
         )}
       </div>

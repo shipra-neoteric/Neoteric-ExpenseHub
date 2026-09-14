@@ -5,9 +5,26 @@ const User = require('../../src/models/User');
 const ExpenseCategory = require('../../src/models/ExpenseCategory');
 const ExpensePolicy = require('../../src/models/ExpensePolicy');
 const Expense = require('../../src/models/Expense');
+const ExpenseAttachment = require('../../src/models/ExpenseAttachment');
 const fundService = require('../../src/services/fundService');
 const expenseService = require('../../src/services/expenseService');
 const { EXPENSE_STATUS, OVERDRAW_BEHAVIOR, PAYMENT_MODES } = require('../../src/config/constants');
+
+// submitExpense only checks that at least one attachment row exists for the
+// expense — it never reads the file itself — so a bare metadata row is a
+// faithful stand-in for a real upload in these service-level tests.
+async function attachFakeReceipt(expenseId, userId) {
+  await ExpenseAttachment.create({
+    organizationId: (await Expense.findById(expenseId)).organizationId,
+    expenseId,
+    storageKey: 'fake-key.jpg',
+    originalName: 'receipt.jpg',
+    mimeType: 'image/jpeg',
+    sizeBytes: 1024,
+    checksum: 'fake-checksum',
+    uploadedBy: userId,
+  });
+}
 
 beforeAll(async () => db.connect());
 afterAll(async () => db.disconnect());
@@ -71,6 +88,7 @@ async function createSubmittedExpense({ org, site, category, user, amountPaise =
       paidByUserId: user._id,
     },
   });
+  await attachFakeReceipt(draft._id, user._id);
   return expenseService.submitExpense({ expense: draft, userId: user._id });
 }
 
@@ -152,7 +170,7 @@ describe('expense approval workflow', () => {
   });
 
   test('returned expense can be edited and resubmitted, then approved', async () => {
-    const { org, site, category, frontDesk, approver, period } = await setupFixture();
+    const { org, site, category, frontDesk, approver } = await setupFixture();
     const submitted = await createSubmittedExpense({ org, site, category, user: frontDesk });
 
     const returned = await expenseService.returnExpense({ expenseId: submitted._id, userId: approver._id, reason: 'Please clarify the merchant name' });
@@ -209,9 +227,46 @@ describe('expense approval workflow', () => {
       userId: frontDesk._id,
       payload: { expenseDate: new Date(), categoryId: category._id, description: 'Milk and biscuits', amountPaise: 50000, paymentMode: 'CASH', paidByUserId: frontDesk._id },
     });
+    await attachFakeReceipt(draft2._id, frontDesk._id);
     await expect(expenseService.submitExpense({ expense: draft2, userId: frontDesk._id })).rejects.toMatchObject({ code: 'POSSIBLE_DUPLICATE' });
 
     const resubmitted = await expenseService.submitExpense({ expense: draft2, userId: frontDesk._id, duplicateOverrideReason: 'Two separate pantry runs today' });
     expect(resubmitted.status).toBe(EXPENSE_STATUS.PENDING_APPROVAL);
+  });
+
+  test('a receipt is required to submit — no exceptions by category or amount', async () => {
+    const { org, site, category, frontDesk } = await setupFixture();
+    const draft = await expenseService.createDraft({
+      organizationId: org._id,
+      siteId: site._id,
+      userId: frontDesk._id,
+      payload: { expenseDate: new Date(), categoryId: category._id, description: 'No receipt attached', amountPaise: 10000, paymentMode: 'CASH', paidByUserId: frontDesk._id },
+    });
+    await expect(expenseService.submitExpense({ expense: draft, userId: frontDesk._id })).rejects.toMatchObject({ code: 'RECEIPT_REQUIRED' });
+
+    await attachFakeReceipt(draft._id, frontDesk._id);
+    const submitted = await expenseService.submitExpense({ expense: draft, userId: frontDesk._id });
+    expect(submitted.status).toBe(EXPENSE_STATUS.PENDING_APPROVAL);
+  });
+
+  test('AGM rejecting an expense still deducts the fund (money was already spent), and it can be reversed later', async () => {
+    const { org, site, category, frontDesk, approver, period } = await setupFixture();
+    const submitted = await createSubmittedExpense({ org, site, category, user: frontDesk, amountPaise: 200000 });
+
+    const rejected = await expenseService.rejectExpense({ expenseId: submitted._id, userId: approver._id, reason: 'Not a legitimate business expense' });
+    expect(rejected.status).toBe(EXPENSE_STATUS.REJECTED);
+    expect(rejected.ledgerEntryId).toBeTruthy();
+
+    const afterReject = await fundService.computeBalance(period._id);
+    expect(afterReject.available).toBe(1000000 - 200000);
+    expect(afterReject.pending).toBe(0);
+
+    // Dispute resolved in the front desk's favor — reverse it like an approved void.
+    const voided = await expenseService.voidExpense({ expenseId: rejected._id, userId: approver._id, reason: 'Front desk produced valid justification on review' });
+    expect(voided.status).toBe(EXPENSE_STATUS.VOIDED);
+    expect(voided.reversalLedgerEntryId).toBeTruthy();
+
+    const afterVoid = await fundService.computeBalance(period._id);
+    expect(afterVoid.available).toBe(1000000);
   });
 });

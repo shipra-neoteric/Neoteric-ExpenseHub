@@ -2,25 +2,21 @@ const mongoose = require('mongoose');
 const Expense = require('../models/Expense');
 const ExpenseCategory = require('../models/ExpenseCategory');
 const ExpenseApprovalAction = require('../models/ExpenseApprovalAction');
-const ExpensePolicy = require('../models/ExpensePolicy');
+const ExpenseAttachment = require('../models/ExpenseAttachment');
 const Site = require('../models/Site');
+const User = require('../models/User');
 const ApiError = require('../utils/ApiError');
-const { EXPENSE_STATUS, FUND_PERIOD_STATUS, LEDGER_ENTRY_TYPE, RECEIPT_RULE, OVERDRAW_BEHAVIOR } = require('../config/constants');
+const { EXPENSE_STATUS, FUND_PERIOD_STATUS, LEDGER_ENTRY_TYPE, OVERDRAW_BEHAVIOR } = require('../config/constants');
 const { nextExpenseNumber } = require('./numberingService');
 const { recordAudit } = require('./auditService');
 const fundService = require('./fundService');
+const { getEffectivePolicy } = fundService;
+const slackService = require('./slackService');
 const FundLedgerEntry = require('../models/FundLedgerEntry');
 const FundPeriod = require('../models/FundPeriod');
 
 function normalize(text) {
   return String(text || '').trim().toLowerCase().replace(/\s+/g, ' ');
-}
-
-async function getEffectivePolicy(organizationId, siteId) {
-  const sitePolicy = await ExpensePolicy.findOne({ organizationId, siteId });
-  if (sitePolicy) return sitePolicy;
-  const orgDefault = await ExpensePolicy.findOne({ organizationId, siteId: null });
-  return orgDefault;
 }
 
 async function findLikelyDuplicates({ organizationId, siteId, expenseDate, amountPaise, description, merchant, excludeId }) {
@@ -151,16 +147,12 @@ async function submitExpense({ expense, userId, duplicateOverrideReason, req }) 
     throw ApiError.badRequest('Expense date cannot be in the future', 'FUTURE_DATE_NOT_ALLOWED');
   }
 
-  const category = await ExpenseCategory.findById(expense.categoryId);
-  const receiptCount = await require('../models/ExpenseAttachment').countDocuments({ expenseId: expense._id, removedAt: null });
-  // Category rule and the policy's blanket amount threshold are independent
-  // triggers: either one can require a receipt.
-  const categoryRequiresReceipt =
-    category?.receiptRule === RECEIPT_RULE.REQUIRED ||
-    (category?.receiptRule === RECEIPT_RULE.REQUIRED_ABOVE_THRESHOLD && expense.amountPaise >= (category.receiptThresholdPaise ?? Infinity));
-  const policyRequiresReceipt = policy?.receiptRequiredThresholdPaise != null && expense.amountPaise >= policy.receiptRequiredThresholdPaise;
-  if ((categoryRequiresReceipt || policyRequiresReceipt) && receiptCount === 0) {
-    throw ApiError.badRequest('A receipt is required for this category/amount', 'RECEIPT_REQUIRED');
+  // A receipt is unconditionally required to submit — not gated by category
+  // or amount. (Category/policy receipt-rule fields still exist for
+  // reporting/future use, but no longer gate the hard requirement below.)
+  const receiptCount = await ExpenseAttachment.countDocuments({ expenseId: expense._id, removedAt: null });
+  if (receiptCount === 0) {
+    throw ApiError.badRequest('A receipt is required to submit this expense', 'RECEIPT_REQUIRED');
   }
 
   if (!duplicateOverrideReason) {
@@ -206,7 +198,30 @@ async function submitExpense({ expense, userId, duplicateOverrideReason, req }) 
     toStatus: expense.status,
   });
   await recordAudit({ organizationId: expense.organizationId, actorId: userId, action: 'EXPENSE_SUBMIT', entityType: 'Expense', entityId: expense._id, before, after: expense.toObject(), req });
+
+  // Best-effort notification — Slack being unreachable/misconfigured must
+  // never fail a real submission, so this runs after the transaction has
+  // already committed and any error here is only logged, not thrown.
+  notifyApproversOnSlack(expense).catch((err) => console.error('[slack] approval notification failed', err));
+
   return expense;
+}
+
+async function notifyApproversOnSlack(expense) {
+  if (!slackService.isConfigured()) return;
+
+  const policy = await getEffectivePolicy(expense.organizationId, expense.siteId);
+  const approverIds = policy?.approverUserIds || [];
+  if (approverIds.length === 0) return;
+
+  const [approvers, site, attachment] = await Promise.all([
+    User.find({ _id: { $in: approverIds }, isActive: true }),
+    Site.findById(expense.siteId).lean(),
+    ExpenseAttachment.findOne({ expenseId: expense._id, removedAt: null }).sort({ createdAt: 1 }),
+  ]);
+  if (approvers.length === 0) return;
+
+  await slackService.sendApprovalRequest({ expense, siteName: site?.name || '', approvers, attachment });
 }
 
 async function approveExpense({ expenseId, userId, allowSelfApprovalOverride, req }) {
@@ -288,25 +303,63 @@ async function returnExpense({ expenseId, userId, reason, req }) {
   return expense;
 }
 
+// Rejecting still posts a real ledger deduction: the money was already spent
+// by the front desk in the real world (they hold cash/UPI proof, not a
+// pending claim), so a rejection is a judgment that the expense wasn't a
+// legitimate business cost — not proof the cash never left the register.
+// The expense's status stays REJECTED (for accountability/audit) while the
+// fund balance reflects reality. A rejected-and-deducted expense can later be
+// reversed via voidExpense, exactly like an approved one, if it turns out to
+// be a mistake.
 async function rejectExpense({ expenseId, userId, reason, req }) {
-  const expense = await Expense.findById(expenseId);
-  if (!expense) throw ApiError.notFound('Expense not found');
-  if (expense.status !== EXPENSE_STATUS.PENDING_APPROVAL) throw ApiError.conflict('Only pending expenses can be rejected', 'NOT_PENDING');
-  if (!reason?.trim()) throw ApiError.badRequest('A reason is required', 'REASON_REQUIRED');
+  const session = await mongoose.startSession();
+  try {
+    let result;
+    await session.withTransaction(async () => {
+      const expense = await Expense.findById(expenseId).session(session);
+      if (!expense) throw ApiError.notFound('Expense not found');
+      if (expense.status !== EXPENSE_STATUS.PENDING_APPROVAL) throw ApiError.conflict('Only pending expenses can be rejected', 'NOT_PENDING');
+      if (!reason?.trim()) throw ApiError.badRequest('A reason is required', 'REASON_REQUIRED');
 
-  const before = expense.toObject();
-  expense.status = EXPENSE_STATUS.REJECTED;
-  expense.rejectedAt = new Date();
-  expense.rejectReason = reason.trim();
-  expense.version += 1;
-  expense.updatedBy = userId;
-  await expense.save();
+      const before = expense.toObject();
+      const [ledgerEntry] = await FundLedgerEntry.create(
+        [
+          {
+            organizationId: expense.organizationId,
+            siteId: expense.siteId,
+            fundAccountId: expense.fundAccountId,
+            fundPeriodId: expense.fundPeriodId,
+            type: LEDGER_ENTRY_TYPE.EXPENSE_POSTED,
+            amountPaise: -expense.amountPaise,
+            relatedExpenseId: expense._id,
+            reason: `Rejected but deducted (already spent): ${reason.trim()}`,
+            createdBy: userId,
+          },
+        ],
+        { session }
+      );
 
-  await ExpenseApprovalAction.create({ organizationId: expense.organizationId, expenseId: expense._id, action: 'REJECT', actorId: userId, reason, fromStatus: before.status, toStatus: expense.status });
-  await recordAudit({ organizationId: expense.organizationId, actorId: userId, action: 'EXPENSE_REJECT', entityType: 'Expense', entityId: expense._id, before, after: expense.toObject(), reason, req });
-  return expense;
+      expense.status = EXPENSE_STATUS.REJECTED;
+      expense.rejectedAt = new Date();
+      expense.rejectReason = reason.trim();
+      expense.ledgerEntryId = ledgerEntry._id;
+      expense.version += 1;
+      expense.updatedBy = userId;
+      await expense.save({ session });
+
+      await ExpenseApprovalAction.create([{ organizationId: expense.organizationId, expenseId: expense._id, action: 'REJECT', actorId: userId, reason, fromStatus: before.status, toStatus: expense.status }], { session });
+      await recordAudit({ organizationId: expense.organizationId, actorId: userId, action: 'EXPENSE_REJECT', entityType: 'Expense', entityId: expense._id, before, after: expense.toObject(), reason, req, session });
+      result = expense;
+    });
+    return result;
+  } finally {
+    session.endSession();
+  }
 }
 
+// Reverses the fund deduction for either an APPROVED or a REJECTED-but-deducted
+// expense — both have a ledgerEntryId pointing at the EXPENSE_POSTED entry
+// that took the money out, so both use the same reversal path.
 async function voidExpense({ expenseId, userId, reason, req }) {
   const session = await mongoose.startSession();
   try {
@@ -314,7 +367,9 @@ async function voidExpense({ expenseId, userId, reason, req }) {
     await session.withTransaction(async () => {
       const expense = await Expense.findById(expenseId).session(session);
       if (!expense) throw ApiError.notFound('Expense not found');
-      if (expense.status !== EXPENSE_STATUS.APPROVED) throw ApiError.conflict('Only approved expenses can be voided', 'NOT_APPROVED');
+      if (![EXPENSE_STATUS.APPROVED, EXPENSE_STATUS.REJECTED].includes(expense.status) || !expense.ledgerEntryId) {
+        throw ApiError.conflict('Only an approved or a rejected-and-deducted expense can be voided', 'NOT_VOIDABLE');
+      }
       if (!reason?.trim()) throw ApiError.badRequest('A reason is required', 'REASON_REQUIRED');
 
       const before = expense.toObject();

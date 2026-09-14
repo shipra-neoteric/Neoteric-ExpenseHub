@@ -10,5 +10,6 @@ router.use(requireAuth, requirePermission(PERMISSIONS.USER_SCOPE_MANAGE));
 router.get('/', userController.list);
 router.post('/', validate(userCreateSchema), userController.create);
 router.patch('/:id', userController.update);
+router.delete('/:id', userController.remove);
 
 module.exports = router;

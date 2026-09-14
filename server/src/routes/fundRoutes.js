@@ -47,5 +47,6 @@ router.post(
   requireFundPeriodSiteAccess,
   fundController.reopenPeriod
 );
+router.post('/rollover', requirePermission(PERMISSIONS.MASTER_MANAGE), fundController.runRollover);
 
 module.exports = router;

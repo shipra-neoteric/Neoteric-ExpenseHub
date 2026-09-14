@@ -24,9 +24,10 @@ const ACTION_LABELS = {
 
 const sectionHeadingClass = 'text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3';
 
-async function confirmWithReason({ title, confirmText, icon = 'warning' }) {
+async function confirmWithReason({ title, confirmText, icon = 'warning', text }) {
   const { value } = await Swal.fire({
     title,
+    text,
     input: 'textarea',
     inputPlaceholder: 'Reason (required)',
     icon,
@@ -229,7 +230,11 @@ export default function ExpenseDetailsDrawer({ expenseId, onClose, onChanged, ca
                   label="Reject"
                   variant="danger"
                   onClick={async () => {
-                    const reason = await confirmWithReason({ title: 'Reject this expense', confirmText: 'Reject' });
+                    const reason = await confirmWithReason({
+                      title: 'Reject this expense?',
+                      confirmText: 'Reject',
+                      text: `The money was already spent, so ${paiseToInr(expense.amountPaise)} will still be deducted from the fund — only the status will show Rejected. This can be reversed later if needed.`,
+                    });
                     if (reason) await runAction(() => api.post(`/expenses/${expense._id}/reject`, { reason }), 'Rejected');
                   }}
                   disabled={actionLoading}
@@ -241,13 +246,17 @@ export default function ExpenseDetailsDrawer({ expenseId, onClose, onChanged, ca
               <ActionButton icon={Pencil} label="Edit and Resubmit" variant="primary" onClick={() => setEditOpen(true)} disabled={actionLoading} />
             )}
 
-            {expense.status === 'APPROVED' && hasPermission(PERMISSIONS.VOID) && (
+            {['APPROVED', 'REJECTED'].includes(expense.status) && !!expense.ledgerEntryId && hasPermission(PERMISSIONS.VOID) && (
               <ActionButton
                 icon={Undo2}
                 label="Void / Reverse"
                 variant="danger"
                 onClick={async () => {
-                  const reason = await confirmWithReason({ title: 'Void this approved expense?', confirmText: 'Void' });
+                  const reason = await confirmWithReason({
+                    title: `Reverse this ${expense.status === 'REJECTED' ? 'rejected' : 'approved'} expense?`,
+                    confirmText: 'Void',
+                    text: `${paiseToInr(expense.amountPaise)} will be credited back to the fund.`,
+                  });
                   if (reason) await runAction(() => api.post(`/expenses/${expense._id}/void`, { reason }), 'Voided');
                 }}
                 disabled={actionLoading}

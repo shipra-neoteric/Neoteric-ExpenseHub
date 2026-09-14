@@ -31,6 +31,16 @@ const ROLE_PRESETS = Object.freeze({
     PERMISSIONS.REJECT_RETURN,
     PERMISSIONS.REPORT_EXPORT,
   ],
+  // AGM is the current approver role going forward — same permission bundle
+  // as SITE_APPROVER (single approval step). Kept as a distinct preset label
+  // rather than renaming SITE_APPROVER so existing seeded/assigned users are
+  // unaffected; Master can assign either label to new users.
+  AGM: [
+    PERMISSIONS.VIEW,
+    PERMISSIONS.APPROVE,
+    PERMISSIONS.REJECT_RETURN,
+    PERMISSIONS.REPORT_EXPORT,
+  ],
   FINANCE: [
     PERMISSIONS.VIEW,
     PERMISSIONS.FUND_VIEW,

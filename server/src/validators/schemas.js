@@ -111,6 +111,7 @@ const userCreateSchema = z.object({
   password: z.string().min(8),
   roleLabel: z.string().trim().min(1),
   permissions: z.array(z.string()).optional(),
+  slackEmail: z.string().email().optional(),
 });
 
 module.exports = {

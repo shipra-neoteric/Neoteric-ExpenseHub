@@ -21,4 +21,10 @@ module.exports = {
   uploadDir: process.env.UPLOAD_DIR || 'uploads',
   maxUploadMb: parseInt(process.env.MAX_UPLOAD_MB || '8', 10),
   lowBalanceThresholdPaise: parseInt(process.env.LOW_BALANCE_THRESHOLD_PAISE || '200000', 10),
+  automationSecret: process.env.AUTOMATION_SECRET || null,
+  slack: {
+    botToken: process.env.SLACK_BOT_TOKEN || null,
+    signingSecret: process.env.SLACK_SIGNING_SECRET || null,
+  },
+  appBaseUrl: process.env.APP_BASE_URL || null,
 };

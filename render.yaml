@@ -30,3 +30,11 @@ services:
         value: "8"
       - key: LOW_BALANCE_THRESHOLD_PAISE
         value: "200000"
+      - key: APP_BASE_URL
+        sync: false
+      - key: AUTOMATION_SECRET
+        generateValue: true
+      - key: SLACK_BOT_TOKEN
+        sync: false
+      - key: SLACK_SIGNING_SECRET
+        sync: false

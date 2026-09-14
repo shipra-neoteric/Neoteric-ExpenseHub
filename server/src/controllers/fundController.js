@@ -101,4 +101,12 @@ const reopenPeriod = asyncHandler(async (req, res) => {
   res.json({ period });
 });
 
-module.exports = { listPeriods, getBalance, getLedger, openingAllocation, topUp, adjustment, closePeriod, reopenPeriod };
+// Manual equivalent of the scheduled trigger — lets Master run the monthly
+// rollover on demand (e.g. to test it, or if the scheduled job hasn't fired
+// yet) using their own normal session instead of the automation secret.
+const runRollover = asyncHandler(async (req, res) => {
+  const results = await fundService.rolloverDueSites({ organizationId: req.organizationId, userId: req.user._id });
+  res.json({ results });
+});
+
+module.exports = { listPeriods, getBalance, getLedger, openingAllocation, topUp, adjustment, closePeriod, reopenPeriod, runRollover };

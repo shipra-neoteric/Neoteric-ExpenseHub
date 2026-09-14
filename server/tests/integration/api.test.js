@@ -6,9 +6,10 @@ const Organization = require('../../src/models/Organization');
 const Site = require('../../src/models/Site');
 const User = require('../../src/models/User');
 const ExpenseCategory = require('../../src/models/ExpenseCategory');
+const ExpenseAttachment = require('../../src/models/ExpenseAttachment');
 const SiteUserAssignment = require('../../src/models/SiteUserAssignment');
 const fundService = require('../../src/services/fundService');
-const { PERMISSIONS, ROLE_PRESETS } = require('../../src/config/constants');
+const { ROLE_PRESETS } = require('../../src/config/constants');
 
 beforeAll(async () => db.connect());
 afterAll(async () => db.disconnect());
@@ -70,6 +71,19 @@ describe('HTTP API', () => {
       .send({ siteId: String(siteA._id), expenseDate: new Date().toISOString(), categoryId: String(category._id), description: 'Milk and biscuits', amount: '150.00', paymentMode: 'CASH' });
     expect(createRes.status).toBe(201);
     expect(createRes.body.expense.status).toBe('DRAFT');
+
+    // A receipt is mandatory to submit — inserted directly rather than via
+    // the real upload endpoint to keep this test focused and disk-free.
+    await ExpenseAttachment.create({
+      organizationId: siteA.organizationId,
+      expenseId: createRes.body.expense._id,
+      storageKey: 'fake-key.jpg',
+      originalName: 'receipt.jpg',
+      mimeType: 'image/jpeg',
+      sizeBytes: 1024,
+      checksum: 'fake-checksum',
+      uploadedBy: frontDesk._id,
+    });
 
     const submitRes = await request(app).post(`/api/expenses/${createRes.body.expense._id}/submit`).set('Authorization', `Bearer ${token}`).send({});
     expect(submitRes.status).toBe(200);

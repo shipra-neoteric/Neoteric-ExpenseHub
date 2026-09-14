@@ -11,5 +11,8 @@ router.use('/assignments', require('./assignmentRoutes'));
 router.use('/users', require('./userRoutes'));
 router.use('/reports', require('./reportRoutes'));
 router.use('/imports', require('./importRoutes'));
+router.use('/admin', require('./adminRoutes'));
+router.use('/slack', require('./slackRoutes'));
+router.use('/public', require('./publicRoutes'));
 
 module.exports = router;

@@ -1,0 +1,148 @@
+const crypto = require('crypto');
+const env = require('../config/env');
+const { paiseToRupeesString } = require('../utils/money');
+const { signAttachmentToken } = require('../utils/signedLink');
+
+const SLACK_API = 'https://slack.com/api';
+
+function isConfigured() {
+  return !!(env.slack.botToken && env.slack.signingSecret);
+}
+
+// Slack's request-signing scheme: v0:<timestamp>:<raw body>, HMAC-SHA256 with
+// the app's signing secret, compared to the X-Slack-Signature header. The
+// 5-minute window rejects replayed requests.
+function verifySlackSignature({ rawBody, timestamp, signature }) {
+  if (!isConfigured() || !timestamp || !signature) return false;
+  const age = Math.abs(Date.now() / 1000 - Number(timestamp));
+  if (!Number.isFinite(age) || age > 60 * 5) return false;
+  const base = `v0:${timestamp}:${rawBody}`;
+  const expected = 'v0=' + crypto.createHmac('sha256', env.slack.signingSecret).update(base).digest('hex');
+  const a = Buffer.from(expected);
+  const b = Buffer.from(signature);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+async function slackApi(method, body) {
+  const res = await fetch(`${SLACK_API}/${method}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: `Bearer ${env.slack.botToken}` },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!data.ok) throw new Error(`Slack API ${method} failed: ${data.error}`);
+  return data;
+}
+
+async function openDmByEmail(email) {
+  const lookup = await slackApi('users.lookupByEmail', { email });
+  const opened = await slackApi('conversations.open', { users: lookup.user.id });
+  return opened.channel.id;
+}
+
+function buildApprovalBlocks(expense, attachment) {
+  const amount = `Rs. ${paiseToRupeesString(expense.amountPaise)}`;
+  const blocks = [
+    { type: 'header', text: { type: 'plain_text', text: `Expense awaiting your approval`, emoji: true } },
+    {
+      type: 'section',
+      fields: [
+        { type: 'mrkdwn', text: `*Expense:*\n${expense.expenseNumber}` },
+        { type: 'mrkdwn', text: `*Site:*\n${expense.siteName}` },
+        { type: 'mrkdwn', text: `*Amount:*\n${amount}` },
+        { type: 'mrkdwn', text: `*Date:*\n${new Date(expense.expenseDate).toLocaleDateString('en-IN')}` },
+        { type: 'mrkdwn', text: `*Category:*\n${expense.categorySnapshot?.name || ''}` },
+        { type: 'mrkdwn', text: `*Payment Mode:*\n${expense.paymentMode}` },
+      ],
+    },
+    { type: 'section', text: { type: 'mrkdwn', text: `*Description:*\n${expense.description}${expense.merchant ? `\n*Merchant:* ${expense.merchant}` : ''}` } },
+  ];
+
+  if (attachment) {
+    const url = `${env.appBaseUrl}/api/public/attachments/${attachment._id}?token=${signAttachmentToken(String(attachment._id))}`;
+    if (attachment.mimeType.startsWith('image/')) {
+      blocks.push({ type: 'image', image_url: url, alt_text: 'Receipt', title: { type: 'plain_text', text: 'Receipt' } });
+    } else {
+      blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*Receipt:* <${url}|Open receipt (PDF)>` } });
+    }
+  } else {
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: '_No receipt attached._' } });
+  }
+
+  blocks.push({
+    type: 'actions',
+    block_id: 'expense_approval_actions',
+    elements: [
+      { type: 'button', text: { type: 'plain_text', text: 'Approve', emoji: true }, style: 'primary', value: String(expense._id), action_id: 'expense_approve' },
+      { type: 'button', text: { type: 'plain_text', text: 'Reject', emoji: true }, style: 'danger', value: String(expense._id), action_id: 'expense_reject' },
+    ],
+  });
+  return blocks;
+}
+
+// Fire-and-forget from the caller's point of view: a Slack DM failing to
+// send must never block or roll back the actual expense submission, so
+// callers should not await this inline with the submit transaction — see
+// expenseService.submitExpense.
+async function sendApprovalRequest({ expense, siteName, approvers, attachment }) {
+  if (!isConfigured()) return { skipped: true, reason: 'SLACK_NOT_CONFIGURED' };
+  const results = [];
+  for (const user of approvers) {
+    if (!user.slackEmail) {
+      results.push({ userId: user._id, skipped: true, reason: 'NO_SLACK_EMAIL' });
+      continue;
+    }
+    try {
+      const channel = await openDmByEmail(user.slackEmail);
+      const posted = await slackApi('chat.postMessage', {
+        channel,
+        blocks: buildApprovalBlocks({ ...expense.toObject?.() ?? expense, siteName }, attachment),
+        text: `Expense ${expense.expenseNumber} needs your approval`,
+      });
+      results.push({ userId: user._id, ok: true, channel, ts: posted.ts });
+    } catch (err) {
+      results.push({ userId: user._id, ok: false, error: err.message });
+    }
+  }
+  return { results };
+}
+
+// Replaces the interactive buttons with a static outcome line once the AGM
+// acts, so the Slack message itself becomes the audit trail of what happened
+// and can't be clicked twice.
+async function updateMessageAfterAction({ responseUrl, outcomeText }) {
+  await fetch(responseUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ replace_original: true, text: outcomeText }),
+  });
+}
+
+async function slackUserEmail(slackUserId) {
+  const info = await slackApi('users.info', { user: slackUserId });
+  return info.user?.profile?.email || null;
+}
+
+async function openRejectReasonModal({ triggerId, expenseId }) {
+  await slackApi('views.open', {
+    trigger_id: triggerId,
+    view: {
+      type: 'modal',
+      callback_id: 'expense_reject_reason',
+      private_metadata: expenseId,
+      title: { type: 'plain_text', text: 'Reject expense' },
+      submit: { type: 'plain_text', text: 'Reject' },
+      close: { type: 'plain_text', text: 'Cancel' },
+      blocks: [
+        {
+          type: 'input',
+          block_id: 'reason_block',
+          label: { type: 'plain_text', text: 'Reason (the fund will still be deducted)' },
+          element: { type: 'plain_text_input', action_id: 'reason_input', multiline: true, min_length: 3 },
+        },
+      ],
+    },
+  });
+}
+
+module.exports = { isConfigured, verifySlackSignature, sendApprovalRequest, updateMessageAfterAction, slackUserEmail, openRejectReasonModal };

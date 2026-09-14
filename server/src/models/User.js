@@ -19,6 +19,10 @@ const userSchema = new Schema(
     },
     isActive: { type: Boolean, default: true },
     lastLoginAt: { type: Date },
+    // Email registered on the org's Slack workspace, used to DM this user
+    // approval requests (via Slack's users.lookupByEmail). Independent of
+    // the login email above, since they need not match.
+    slackEmail: { type: String, trim: true, lowercase: true, default: null },
   },
   { timestamps: true }
 );
@@ -42,6 +46,7 @@ userSchema.methods.toSafeJSON = function toSafeJSON() {
     roleLabel: this.roleLabel,
     permissions: this.permissions,
     isActive: this.isActive,
+    slackEmail: this.slackEmail || null,
   };
 };
 

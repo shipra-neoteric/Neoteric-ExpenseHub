@@ -3,9 +3,20 @@ const FundAccount = require('../models/FundAccount');
 const FundPeriod = require('../models/FundPeriod');
 const FundLedgerEntry = require('../models/FundLedgerEntry');
 const Expense = require('../models/Expense');
+const Site = require('../models/Site');
+const ExpensePolicy = require('../models/ExpensePolicy');
 const ApiError = require('../utils/ApiError');
 const { LEDGER_ENTRY_TYPE, FUND_PERIOD_STATUS, EXPENSE_STATUS } = require('../config/constants');
 const { recordAudit } = require('./auditService');
+
+// Lives here (not expenseService) so both expenseService and this file's own
+// rollover logic can use it without a require() cycle between the two
+// services.
+async function getEffectivePolicy(organizationId, siteId) {
+  const sitePolicy = await ExpensePolicy.findOne({ organizationId, siteId });
+  if (sitePolicy) return sitePolicy;
+  return ExpensePolicy.findOne({ organizationId, siteId: null });
+}
 
 const FUNDED_TYPES = [LEDGER_ENTRY_TYPE.OPENING_ALLOCATION, LEDGER_ENTRY_TYPE.TOP_UP, LEDGER_ENTRY_TYPE.CARRY_FORWARD];
 
@@ -29,6 +40,11 @@ async function computeBalance(fundPeriodId) {
     if (row._id === LEDGER_ENTRY_TYPE.EXPENSE_POSTED) postedSpend += -row.total;
     if (row._id === LEDGER_ENTRY_TYPE.EXPENSE_REVERSAL) reversed += row.total;
   }
+  // Named approvedSpend for the existing dashboard/report labels, but it's
+  // really "posted spend": since rejectExpense also posts an EXPENSE_POSTED
+  // deduction (the money was already spent regardless of the review
+  // outcome), this total includes rejected-but-deducted amounts too, not
+  // only APPROVED ones. That's intentional — it reflects real cash out.
   const approvedSpend = postedSpend - reversed;
 
   const pendingAgg = await Expense.aggregate([
@@ -252,10 +268,163 @@ async function reopenPeriod({ fundPeriodId, userId, req }) {
   return period;
 }
 
+function monthLabel(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// Rolls one site's fund forward into the current calendar month: whatever
+// was left in the old period carries forward (even if zero or negative —
+// unlike a manual close, automation must never leave a site with no open
+// period), and the site's configured fixed monthly amount is added on top.
+// Distinct from closePeriod() (which only carries forward a positive balance,
+// and only when a human explicitly asks it to) because unattended automation
+// must guarantee continuity: there's no Master watching to open the next
+// period by hand if this run skipped it.
+async function rolloverPeriod({ period, monthlyAllocationPaise, userId, label }) {
+  const session = await mongoose.startSession();
+  try {
+    let newPeriod = null;
+    let outcome = null;
+    await session.withTransaction(async () => {
+      const fresh = await FundPeriod.findById(period._id).session(session);
+      if (!fresh || ![FUND_PERIOD_STATUS.OPEN, FUND_PERIOD_STATUS.REOPENED].includes(fresh.status)) {
+        outcome = 'ALREADY_CLOSED';
+        return;
+      }
+      const pendingCount = await Expense.countDocuments({
+        fundPeriodId: fresh._id,
+        status: { $in: [EXPENSE_STATUS.PENDING_APPROVAL, EXPENSE_STATUS.RETURNED] },
+      }).session(session);
+      if (pendingCount > 0) {
+        outcome = 'PENDING_ITEMS_EXIST';
+        return;
+      }
+
+      const balance = await computeBalance(fresh._id);
+      fresh.status = FUND_PERIOD_STATUS.CLOSED;
+      fresh.closedBy = userId;
+      fresh.closedAt = new Date();
+      fresh.endDate = new Date();
+      fresh.reconciliationNotes = 'Closed automatically by monthly rollover';
+      await fresh.save({ session });
+
+      [newPeriod] = await FundPeriod.create(
+        [
+          {
+            organizationId: fresh.organizationId,
+            siteId: fresh.siteId,
+            fundAccountId: fresh.fundAccountId,
+            label,
+            startDate: new Date(),
+            status: FUND_PERIOD_STATUS.OPEN,
+            carryForwardFromPeriodId: fresh._id,
+            openedBy: userId,
+          },
+        ],
+        { session }
+      );
+
+      if (balance.available !== 0) {
+        await FundLedgerEntry.create(
+          [
+            {
+              organizationId: fresh.organizationId,
+              siteId: fresh.siteId,
+              fundAccountId: fresh.fundAccountId,
+              fundPeriodId: newPeriod._id,
+              type: LEDGER_ENTRY_TYPE.CARRY_FORWARD,
+              amountPaise: balance.available,
+              reason: `Carried forward from ${fresh.label}`,
+              createdBy: userId,
+            },
+          ],
+          { session }
+        );
+      }
+      if (monthlyAllocationPaise > 0) {
+        await FundLedgerEntry.create(
+          [
+            {
+              organizationId: fresh.organizationId,
+              siteId: fresh.siteId,
+              fundAccountId: fresh.fundAccountId,
+              fundPeriodId: newPeriod._id,
+              type: LEDGER_ENTRY_TYPE.TOP_UP,
+              amountPaise: monthlyAllocationPaise,
+              reason: `Monthly allocation — ${label}`,
+              createdBy: userId,
+            },
+          ],
+          { session }
+        );
+      }
+
+      await recordAudit({
+        organizationId: fresh.organizationId,
+        actorId: userId,
+        action: 'FUND_MONTHLY_ROLLOVER',
+        entityType: 'FundPeriod',
+        entityId: newPeriod._id,
+        after: { carriedForward: balance.available, monthlyAllocationPaise, label },
+        session,
+      });
+      outcome = 'ROLLED_OVER';
+    });
+    return { outcome, newPeriod };
+  } finally {
+    session.endSession();
+  }
+}
+
+// Entry point for both the manual "Run Rollover Now" button and the
+// external scheduled trigger. Idempotent to call repeatedly within the same
+// month: a site whose open period already carries this month's label is
+// left untouched.
+async function rolloverDueSites({ organizationId, userId, now = new Date() }) {
+  const label = monthLabel(now);
+  const sites = await Site.find({ organizationId, status: 'ACTIVE' }).lean();
+  const results = [];
+
+  for (const site of sites) {
+    const policy = await getEffectivePolicy(organizationId, site._id);
+    const monthlyAllocationPaise = policy?.defaultAllocationPaise || 0;
+    if (monthlyAllocationPaise <= 0) {
+      results.push({ site: site.name, outcome: 'SKIPPED_NO_MONTHLY_AMOUNT' });
+      continue;
+    }
+
+    const account = await getActiveFundAccount(site._id, organizationId);
+    if (!account) {
+      const period = await createOpeningAllocation({ organizationId, siteId: site._id, amountPaise: monthlyAllocationPaise, label, startDate: now, userId });
+      results.push({ site: site.name, outcome: 'OPENED', periodId: period._id, label });
+      continue;
+    }
+
+    const openPeriod = await getOpenPeriod(account._id);
+    if (!openPeriod) {
+      const period = await createOpeningAllocation({ organizationId, siteId: site._id, amountPaise: monthlyAllocationPaise, label, startDate: now, userId });
+      results.push({ site: site.name, outcome: 'OPENED', periodId: period._id, label });
+      continue;
+    }
+    if (openPeriod.label === label) {
+      results.push({ site: site.name, outcome: 'ALREADY_CURRENT', periodId: openPeriod._id, label });
+      continue;
+    }
+
+    const { outcome, newPeriod } = await rolloverPeriod({ period: openPeriod, monthlyAllocationPaise, userId, label });
+    results.push({ site: site.name, outcome, periodId: newPeriod?._id, label });
+  }
+
+  return results;
+}
+
 module.exports = {
   computeBalance,
   getActiveFundAccount,
   getOpenPeriod,
+  getEffectivePolicy,
+  monthLabel,
+  rolloverDueSites,
   createOpeningAllocation,
   addLedgerMovement,
   closePeriod,
