@@ -14,6 +14,15 @@ const routes = require('./routes');
 
 const app = express();
 
+// Render (and most PaaS hosts) puts exactly one reverse proxy in front of
+// the app and sets X-Forwarded-For accordingly. Express defaults to
+// distrusting that header entirely, which makes express-rate-limit throw on
+// every single request instead of using the real client IP — trusting
+// exactly one hop tells Express (and therefore the rate limiter and req.ip)
+// to read it. Never set this to `true` (trust every hop) on a host where
+// the outermost layer isn't controlled by the platform itself.
+app.set('trust proxy', 1);
+
 app.use(helmet());
 app.use(cors({ origin: env.clientOrigin, credentials: true }));
 app.use(compression());
