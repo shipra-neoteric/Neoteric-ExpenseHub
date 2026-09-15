@@ -207,21 +207,40 @@ async function submitExpense({ expense, userId, duplicateOverrideReason, req }) 
   return expense;
 }
 
+// Logs every outcome, including the quiet ones — the caller only sees
+// failures via .catch(), so a skip (unconfigured, no approvers listed, no
+// active approver) or even a clean success would otherwise leave zero trace,
+// making "why didn't the DM arrive?" impossible to diagnose from logs alone.
 async function notifyApproversOnSlack(expense) {
-  if (!slackService.isConfigured()) return;
+  const tag = `[slack] ${expense.expenseNumber}`;
+  if (!slackService.isConfigured()) {
+    console.log(`${tag}: skipped — SLACK_BOT_TOKEN/SLACK_SIGNING_SECRET not set`);
+    return;
+  }
 
   const policy = await getEffectivePolicy(expense.organizationId, expense.siteId);
   const approverIds = policy?.approverUserIds || [];
-  if (approverIds.length === 0) return;
+  if (approverIds.length === 0) {
+    console.log(`${tag}: skipped — no approverUserIds on the effective policy for this site`);
+    return;
+  }
 
   const [approvers, site, attachment] = await Promise.all([
     User.find({ _id: { $in: approverIds }, isActive: true }),
     Site.findById(expense.siteId).lean(),
     ExpenseAttachment.findOne({ expenseId: expense._id, removedAt: null }).sort({ createdAt: 1 }),
   ]);
-  if (approvers.length === 0) return;
+  if (approvers.length === 0) {
+    console.log(`${tag}: skipped — none of the ${approverIds.length} configured approver(s) are active users`);
+    return;
+  }
+  const withoutSlackEmail = approvers.filter((a) => !a.slackEmail);
+  if (withoutSlackEmail.length) {
+    console.log(`${tag}: ${withoutSlackEmail.map((a) => a.name).join(', ')} has/have no slackEmail set — will be skipped`);
+  }
 
-  await slackService.sendApprovalRequest({ expense, siteName: site?.name || '', approvers, attachment });
+  const outcome = await slackService.sendApprovalRequest({ expense, siteName: site?.name || '', approvers, attachment });
+  console.log(`${tag}: send result`, JSON.stringify(outcome));
 }
 
 async function approveExpense({ expenseId, userId, allowSelfApprovalOverride, req }) {
