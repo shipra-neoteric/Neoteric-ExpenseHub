@@ -23,11 +23,22 @@ function verifySlackSignature({ rawBody, timestamp, signature }) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+// Classic form-encoding, not JSON: some Web API methods (users.lookupByEmail
+// among them) reject a JSON body with "invalid_arguments" even though the
+// same arguments are perfectly valid — form-encoding is the one format every
+// Slack Web API method has always accepted. Non-string values (blocks, view)
+// are JSON-stringified into a single form field, which is exactly how Slack
+// expects structured arguments to arrive over form-encoding.
 async function slackApi(method, body) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(body)) {
+    if (value === undefined || value === null) continue;
+    params.append(key, typeof value === 'string' ? value : JSON.stringify(value));
+  }
   const res = await fetch(`${SLACK_API}/${method}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: `Bearer ${env.slack.botToken}` },
-    body: JSON.stringify(body),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8', Authorization: `Bearer ${env.slack.botToken}` },
+    body: params.toString(),
   });
   const data = await res.json();
   if (!data.ok) throw new Error(`Slack API ${method} failed: ${data.error}`);
