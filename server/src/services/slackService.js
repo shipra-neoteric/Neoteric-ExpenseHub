@@ -51,10 +51,13 @@ async function openDmByEmail(email) {
   return opened.channel.id;
 }
 
-function buildApprovalBlocks(expense, attachment) {
+// Shared by the initial approval request and the post-action update, so
+// approving/rejecting never has to throw away the expense detail to show
+// the outcome — only the trailing block (buttons vs. a result line) differs.
+function buildDetailBlocks(expense, attachment, headerText) {
   const amount = `Rs. ${paiseToRupeesString(expense.amountPaise)}`;
   const blocks = [
-    { type: 'header', text: { type: 'plain_text', text: `Expense awaiting your approval`, emoji: true } },
+    { type: 'header', text: { type: 'plain_text', text: headerText, emoji: true } },
     {
       type: 'section',
       fields: [
@@ -79,7 +82,11 @@ function buildApprovalBlocks(expense, attachment) {
   } else {
     blocks.push({ type: 'section', text: { type: 'mrkdwn', text: '_No receipt attached._' } });
   }
+  return blocks;
+}
 
+function buildApprovalBlocks(expense, attachment) {
+  const blocks = buildDetailBlocks(expense, attachment, 'Expense awaiting your approval');
   blocks.push({
     type: 'actions',
     block_id: 'expense_approval_actions',
@@ -88,6 +95,17 @@ function buildApprovalBlocks(expense, attachment) {
       { type: 'button', text: { type: 'plain_text', text: 'Reject', emoji: true }, style: 'danger', value: String(expense._id), action_id: 'expense_reject' },
     ],
   });
+  return blocks;
+}
+
+// Same detail blocks as the original request, with the buttons swapped for
+// a static result line — the message keeps showing everything (amount,
+// category, description, receipt) instead of collapsing to one line, and
+// can't be clicked twice since the buttons are gone.
+function buildOutcomeBlocks(expense, attachment, outcomeText) {
+  const blocks = buildDetailBlocks(expense, attachment, `Expense ${expense.expenseNumber}`);
+  blocks.push({ type: 'divider' });
+  blocks.push({ type: 'section', text: { type: 'mrkdwn', text: outcomeText } });
   return blocks;
 }
 
@@ -119,13 +137,18 @@ async function sendApprovalRequest({ expense, siteName, approvers, attachment })
 }
 
 // Replaces the interactive buttons with a static outcome line once the AGM
-// acts, so the Slack message itself becomes the audit trail of what happened
-// and can't be clicked twice.
-async function updateMessageAfterAction({ responseUrl, outcomeText }) {
+// acts, while rebuilding the same detail blocks (amount, category,
+// description, receipt) so the message stays fully informative instead of
+// collapsing to a single line — the Slack message becomes the audit trail
+// of what happened, and can't be clicked twice.
+async function updateMessageAfterAction({ responseUrl, outcomeText, expense, attachment }) {
+  const body = expense
+    ? { replace_original: true, text: outcomeText, blocks: buildOutcomeBlocks(expense, attachment, outcomeText) }
+    : { replace_original: true, text: outcomeText };
   await fetch(responseUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ replace_original: true, text: outcomeText }),
+    body: JSON.stringify(body),
   });
 }
 
@@ -134,13 +157,19 @@ async function slackUserEmail(slackUserId) {
   return info.user?.profile?.email || null;
 }
 
-async function openRejectReasonModal({ triggerId, expenseId }) {
+// responseUrl is threaded through private_metadata (as JSON, alongside the
+// expenseId) rather than looked up later — Slack's view_submission payload
+// for the modal has no response_url of its own, since a modal submission is
+// a distinct interaction from the button click that opened it. Carrying it
+// through this way lets the eventual reject still update the *original*
+// message in place, exactly like Approve does, instead of posting a new one.
+async function openRejectReasonModal({ triggerId, expenseId, responseUrl }) {
   await slackApi('views.open', {
     trigger_id: triggerId,
     view: {
       type: 'modal',
       callback_id: 'expense_reject_reason',
-      private_metadata: expenseId,
+      private_metadata: JSON.stringify({ expenseId, responseUrl }),
       title: { type: 'plain_text', text: 'Reject expense' },
       submit: { type: 'plain_text', text: 'Reject' },
       close: { type: 'plain_text', text: 'Cancel' },

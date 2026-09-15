@@ -1,6 +1,8 @@
 const querystring = require('querystring');
 const Expense = require('../models/Expense');
 const User = require('../models/User');
+const Site = require('../models/Site');
+const ExpenseAttachment = require('../models/ExpenseAttachment');
 const slackService = require('../services/slackService');
 const expenseService = require('../services/expenseService');
 const ApiError = require('../utils/ApiError');
@@ -25,6 +27,24 @@ async function assertCanActOnExpense(actor, expense, permission) {
   if (!actor.hasPermission(permission)) return false;
   const accessibleSiteIds = await getAccessibleSiteIds(actor);
   return accessibleSiteIds.includes(String(expense.siteId));
+}
+
+// Re-reads the expense + its receipt fresh (not the pre-action variable) so
+// the rebuilt Slack message reflects the just-saved status, for passing to
+// updateMessageAfterAction.
+async function forSlackMessage(expenseId) {
+  const fresh = await Expense.findById(expenseId).lean();
+  if (!fresh) return { expense: null, attachment: null };
+  const [site, attachment] = await Promise.all([
+    Site.findById(fresh.siteId).lean(),
+    ExpenseAttachment.findOne({ expenseId, removedAt: null }).sort({ createdAt: 1 }).lean(),
+  ]);
+  return { expense: { ...fresh, siteName: site?.name || '' }, attachment };
+}
+
+async function respondWithOutcome(responseUrl, expenseId, outcomeText) {
+  const { expense, attachment } = await forSlackMessage(expenseId);
+  await slackService.updateMessageAfterAction({ responseUrl, outcomeText, expense, attachment });
 }
 
 // Single Request URL for every Slack interaction: block button clicks
@@ -60,24 +80,24 @@ const handleInteraction = asyncHandler(async (req, res) => {
       if (!actor) return;
       try {
         if (!(await assertCanActOnExpense(actor, expense, PERMISSIONS.APPROVE))) {
-          await slackService.updateMessageAfterAction({ responseUrl: payload.response_url, outcomeText: `:no_entry: ${actor.name} is not authorized to approve ${expense.expenseNumber} (missing permission or no longer assigned to this site).` });
+          await respondWithOutcome(payload.response_url, expenseId, `:no_entry: ${actor.name} is not authorized to approve this expense (missing permission or no longer assigned to this site).`);
           return;
         }
         await expenseService.approveExpense({ expenseId, userId: actor._id });
-        await slackService.updateMessageAfterAction({ responseUrl: payload.response_url, outcomeText: `:white_check_mark: Approved by ${actor.name} — ${expense.expenseNumber}` });
+        await respondWithOutcome(payload.response_url, expenseId, `:white_check_mark: *Approved* by ${actor.name}`);
       } catch (err) {
-        await slackService.updateMessageAfterAction({ responseUrl: payload.response_url, outcomeText: `:warning: Could not approve ${expense.expenseNumber}: ${err.message}` });
+        await respondWithOutcome(payload.response_url, expenseId, `:warning: Could not approve: ${err.message}`);
       }
       return;
     }
 
     if (action.action_id === 'expense_reject') {
       if (!actor || !(await assertCanActOnExpense(actor, expense, PERMISSIONS.REJECT_RETURN))) {
-        await slackService.updateMessageAfterAction({ responseUrl: payload.response_url, outcomeText: `:no_entry: You are not authorized to reject ${expense.expenseNumber} (missing permission or no longer assigned to this site).` });
+        await respondWithOutcome(payload.response_url, expenseId, ':no_entry: You are not authorized to reject this expense (missing permission or no longer assigned to this site).');
         res.status(200).send();
         return;
       }
-      await slackService.openRejectReasonModal({ triggerId: payload.trigger_id, expenseId });
+      await slackService.openRejectReasonModal({ triggerId: payload.trigger_id, expenseId, responseUrl: payload.response_url });
       res.status(200).send();
       return;
     }
@@ -87,7 +107,7 @@ const handleInteraction = asyncHandler(async (req, res) => {
   }
 
   if (payload.type === 'view_submission' && payload.view.callback_id === 'expense_reject_reason') {
-    const expenseId = payload.view.private_metadata;
+    const { expenseId, responseUrl } = JSON.parse(payload.view.private_metadata);
     const reason = payload.view.state.values.reason_block.reason_input.value;
     const expense = await Expense.findById(expenseId);
     res.status(200).json({ response_action: 'clear' });
@@ -99,10 +119,10 @@ const handleInteraction = asyncHandler(async (req, res) => {
     if (!(await assertCanActOnExpense(actor, expense, PERMISSIONS.REJECT_RETURN))) return;
     try {
       await expenseService.rejectExpense({ expenseId, userId: actor._id, reason });
-      // No response_url for a modal submission — DM the actor a confirmation instead of silently updating nothing.
+      await respondWithOutcome(responseUrl, expenseId, `:x: *Rejected* by ${actor.name} — fund still deducted (money was already spent)`);
     } catch (err) {
       // Swallowed deliberately: the modal has already closed by the time this
-      // runs, so there is nothing left in Slack to attach the error to.
+      // runs, so the only place left to surface the error is the log.
       console.error('[slack] reject via modal failed', err);
     }
     return;
