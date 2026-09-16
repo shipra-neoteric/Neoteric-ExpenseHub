@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { Plus, Wallet, TrendingUp, Clock, PiggyBank, Paperclip } from 'lucide-react';
 import api, { apiErrorMessage } from '../api/client';
 import useSites from '../hooks/useSites';
@@ -36,19 +36,32 @@ export default function Dashboard() {
   const [addOpen, setAddOpen] = useState(false);
   const [selectedExpenseId, setSelectedExpenseId] = useState(null);
 
+  // Guards against out-of-order responses: on first mount, siteId briefly
+  // holds whatever site was last viewed on this browser (from localStorage,
+  // via useSites) — possibly by a different user, and possibly a site the
+  // current user has no access to — until /sites/mine resolves and corrects
+  // it. That fires two waves of requests for two different sites, and
+  // without this guard, whichever response lands last (not necessarily the
+  // most recent request) wins the display — e.g. a stale "no access" error
+  // for the wrong site clobbering the correct site's already-loaded data.
+  const summaryRequestId = useRef(0);
+  const listRequestId = useRef(0);
+
   const loadSummary = useCallback(async () => {
-    if (!siteId) return;
+    if (!siteId || sitesLoading) return;
+    const requestId = ++summaryRequestId.current;
     setSummaryLoading(true);
     try {
       const { data } = await api.get('/dashboard/summary', { params: { siteId } });
-      setSummary(data);
+      if (requestId === summaryRequestId.current) setSummary(data);
     } finally {
-      setSummaryLoading(false);
+      if (requestId === summaryRequestId.current) setSummaryLoading(false);
     }
-  }, [siteId]);
+  }, [siteId, sitesLoading]);
 
   const loadList = useCallback(async () => {
-    if (!siteId) return;
+    if (!siteId || sitesLoading) return;
+    const requestId = ++listRequestId.current;
     setListLoading(true);
     setListError('');
     try {
@@ -60,13 +73,13 @@ export default function Dashboard() {
       if (filters.dateTo) params.dateTo = filters.dateTo;
       if (filters.receiptStatus) params.receiptStatus = filters.receiptStatus;
       const { data } = await api.get('/expenses', { params });
-      setListState(data);
+      if (requestId === listRequestId.current) setListState(data);
     } catch (err) {
-      setListError(apiErrorMessage(err));
+      if (requestId === listRequestId.current) setListError(apiErrorMessage(err));
     } finally {
-      setListLoading(false);
+      if (requestId === listRequestId.current) setListLoading(false);
     }
-  }, [siteId, page, filters]);
+  }, [siteId, sitesLoading, page, filters]);
 
   useEffect(() => {
     loadSummary();
