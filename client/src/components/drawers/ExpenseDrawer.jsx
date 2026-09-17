@@ -40,7 +40,14 @@ export default function ExpenseDrawer({ open, onClose, siteId, sites, categories
   const [uploading, setUploading] = useState(false);
   const [errors, setErrors] = useState({});
   const [banner, setBanner] = useState('');
-  const [idempotencyKey] = useState(() => crypto.randomUUID());
+  // Regenerated on every fresh "Add Expense" open below, not just once at
+  // mount: this drawer instance stays mounted across opens/closes (the
+  // parent only toggles `open`), so a stale key reused across two separate
+  // draft-creation sessions in the same tab would collide with the
+  // (siteId, createdBy, idempotencyKey) unique index on the second save —
+  // surfacing as a raw "duplicate key" error even though nothing was
+  // actually being retried.
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const savedSnapshotRef = useRef(serialize(emptyForm));
 
   const isEdit = !!editExpense;
@@ -68,6 +75,7 @@ export default function ExpenseDrawer({ open, onClose, siteId, sites, categories
       setForm(emptyForm);
       savedSnapshotRef.current = serialize(emptyForm);
       setAttachments([]);
+      setIdempotencyKey(crypto.randomUUID());
     }
     setErrors({});
     setBanner('');
