@@ -137,9 +137,20 @@ async function submitExpense({ expense, userId, duplicateOverrideReason, req }) 
     if (!policy.allowedPaymentModes.includes(expense.paymentMode)) {
       throw ApiError.badRequest('Payment mode not allowed by policy', 'PAYMENT_MODE_NOT_ALLOWED');
     }
-    const now = new Date();
-    const backdateLimitMs = (policy.backdateLimitDays ?? 7) * 24 * 60 * 60 * 1000;
-    if (now - expense.expenseDate > backdateLimitMs) {
+    // Compared by calendar day, not raw milliseconds: expenseDate is stored
+    // at UTC midnight, but "now" carries whatever time of day it is, so a
+    // millisecond diff overshoots the intended N-day window by up to almost
+    // a full day depending when during the deadline day the user submits
+    // (e.g. an expense from exactly 7 days ago would fail a 7-day policy any
+    // time after midnight). Truncating both sides to UTC midnight first
+    // makes "N days back" mean N calendar days, inclusive, as the policy
+    // field name implies.
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const expenseDay = new Date(expense.expenseDate);
+    expenseDay.setUTCHours(0, 0, 0, 0);
+    const diffDays = Math.round((today - expenseDay) / (24 * 60 * 60 * 1000));
+    if (diffDays > (policy.backdateLimitDays ?? 7)) {
       throw ApiError.badRequest('Expense date is beyond the allowed backdating window', 'BACKDATE_LIMIT_EXCEEDED');
     }
   }
