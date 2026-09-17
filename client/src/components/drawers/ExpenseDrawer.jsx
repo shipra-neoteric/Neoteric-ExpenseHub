@@ -217,16 +217,34 @@ export default function ExpenseDrawer({ open, onClose, siteId, sites, categories
     }
   };
 
+  // Attaching a receipt needs a real expense to attach it to, but the
+  // uploader is shown up front (not gated behind a separate "Save Draft"
+  // click) - so the first file picked silently creates the draft first.
+  const ensureDraftExists = async () => {
+    if (expenseId) return expenseId;
+    if (!validate()) return null;
+    const { data } = await api.post('/expenses', { siteId, ...buildPayload(), idempotencyKey });
+    setExpenseId(data.expense._id);
+    setVersion(data.expense.version);
+    savedSnapshotRef.current = serialize(form);
+    return data.expense._id;
+  };
+
   const onFileSelected = async (e) => {
     const file = e.target.files?.[0];
-    if (!file || !expenseId) return;
+    if (!file) return;
     setUploading(true);
     setBanner('');
-    const fd = new FormData();
-    fd.append('file', file);
     try {
-      await api.post(`/expenses/${expenseId}/attachments`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      await loadAttachments(expenseId);
+      const id = await ensureDraftExists();
+      if (!id) {
+        setBanner('Please fill in the required fields above first, then attach the receipt.');
+        return;
+      }
+      const fd = new FormData();
+      fd.append('file', file);
+      await api.post(`/expenses/${id}/attachments`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      await loadAttachments(id);
     } catch (err) {
       setBanner(apiErrorMessage(err));
     } finally {
@@ -346,27 +364,23 @@ export default function ExpenseDrawer({ open, onClose, siteId, sites, categories
           <label className={fieldLabelClass}>
             Receipt <span className="text-red-500">*</span> (required to submit)
           </label>
-          {!expenseId ? (
-            <p className="text-[11px] text-gray-400">Save as draft first to attach a receipt.</p>
-          ) : (
-            <div className="space-y-2">
-              {attachments.map((a) => (
-                <div key={a._id} className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-[13px] dark:border-gray-700">
-                  <a href={`/api/expenses/${expenseId}/attachments/${a._id}`} target="_blank" rel="noreferrer" className="theme-text flex items-center gap-2 truncate hover:underline">
-                    <FileText className="h-4 w-4 shrink-0" /> <span className="truncate">{a.originalName}</span>
-                  </a>
-                  <button type="button" onClick={() => removeAttachment(a._id)} aria-label="Remove attachment" className="text-gray-400 hover:text-red-500">
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
-              <label className="theme-nav-hover flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-gray-300 px-3 py-4 text-[13px] text-gray-500 dark:border-gray-600">
-                {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
-                {uploading ? 'Uploading…' : 'Upload receipt (JPG, PNG, PDF)'}
-                <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden" onChange={onFileSelected} />
-              </label>
-            </div>
-          )}
+          <div className="space-y-2">
+            {attachments.map((a) => (
+              <div key={a._id} className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-[13px] dark:border-gray-700">
+                <a href={`/api/expenses/${expenseId}/attachments/${a._id}`} target="_blank" rel="noreferrer" className="theme-text flex items-center gap-2 truncate hover:underline">
+                  <FileText className="h-4 w-4 shrink-0" /> <span className="truncate">{a.originalName}</span>
+                </a>
+                <button type="button" onClick={() => removeAttachment(a._id)} aria-label="Remove attachment" className="text-gray-400 hover:text-red-500">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+            <label className="theme-nav-hover flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-gray-300 px-3 py-4 text-[13px] text-gray-500 dark:border-gray-600">
+              {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
+              {uploading ? 'Uploading…' : 'Upload receipt (JPG, PNG, PDF)'}
+              <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden" onChange={onFileSelected} />
+            </label>
+          </div>
         </div>
       </div>
     </DrawerShell>
