@@ -73,7 +73,7 @@ function buildDetailBlocks(expense, attachment, headerText) {
   ];
 
   if (attachment) {
-    const url = `${env.appBaseUrl}/api/public/attachments/${attachment._id}?token=${signAttachmentToken(String(attachment._id))}`;
+    const url = attachment.url || `${env.appBaseUrl}/api/public/attachments/${attachment._id}?token=${signAttachmentToken(String(attachment._id))}`;
     if (attachment.mimeType.startsWith('image/')) {
       blocks.push({ type: 'image', image_url: url, alt_text: 'Receipt', title: { type: 'plain_text', text: 'Receipt' } });
     } else {

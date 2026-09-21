@@ -1,5 +1,3 @@
-const fs = require('fs');
-const path = require('path');
 const crypto = require('crypto');
 const Expense = require('../models/Expense');
 const ExpenseAttachment = require('../models/ExpenseAttachment');
@@ -8,7 +6,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const { recordAudit } = require('../services/auditService');
 const { getAccessibleSiteIds } = require('../middleware/siteScope');
 const { EXPENSE_STATUS } = require('../config/constants');
-const env = require('../config/env');
+const cloudinary = require('../config/cloudinary');
 
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf']);
 
@@ -20,6 +18,16 @@ async function loadExpenseWithAccess(req) {
   return expense;
 }
 
+function uploadBufferToCloudinary(buffer, { resourceType, folder }) {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream({ resource_type: resourceType, folder }, (err, result) => {
+      if (err) reject(err);
+      else resolve(result);
+    });
+    stream.end(buffer);
+  });
+}
+
 const upload = asyncHandler(async (req, res) => {
   const expense = await loadExpenseWithAccess(req);
   if (![EXPENSE_STATUS.DRAFT, EXPENSE_STATUS.RETURNED].includes(expense.status)) {
@@ -27,21 +35,23 @@ const upload = asyncHandler(async (req, res) => {
   }
   if (!req.file) throw ApiError.badRequest('No file uploaded', 'FILE_REQUIRED');
   if (!ALLOWED_MIME.has(req.file.mimetype)) {
-    fs.unlink(req.file.path, () => {});
     throw ApiError.badRequest('Unsupported file type. Use JPG, PNG, WEBP, or PDF.', 'UNSUPPORTED_MIME');
   }
 
-  const checksum = crypto.createHash('sha256').update(fs.readFileSync(req.file.path)).digest('hex');
+  const checksum = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
   const dupe = await ExpenseAttachment.findOne({ expenseId: expense._id, checksum, removedAt: null });
   if (dupe) {
-    fs.unlink(req.file.path, () => {});
     throw ApiError.conflict('This file was already uploaded for this expense', 'DUPLICATE_ATTACHMENT');
   }
+
+  const resourceType = req.file.mimetype === 'application/pdf' ? 'raw' : 'image';
+  const result = await uploadBufferToCloudinary(req.file.buffer, { resourceType, folder: 'expensehub/receipts' });
 
   const attachment = await ExpenseAttachment.create({
     organizationId: req.organizationId,
     expenseId: expense._id,
-    storageKey: req.file.filename,
+    url: result.secure_url,
+    publicId: result.public_id,
     originalName: req.file.originalname,
     mimeType: req.file.mimetype,
     sizeBytes: req.file.size,
@@ -67,14 +77,10 @@ const download = asyncHandler(async (req, res) => {
   const expense = await loadExpenseWithAccess(req);
   const attachment = await ExpenseAttachment.findOne({ _id: req.params.attachmentId, expenseId: expense._id, removedAt: null });
   if (!attachment) throw ApiError.notFound('Attachment not found');
-
-  const filePath = path.join(process.cwd(), env.uploadDir, attachment.storageKey);
-  if (!fs.existsSync(filePath)) throw ApiError.notFound('File not found');
+  if (!attachment.url) throw ApiError.notFound('File not found');
 
   await recordAudit({ organizationId: req.organizationId, actorId: req.user._id, action: 'ATTACHMENT_DOWNLOAD', entityType: 'ExpenseAttachment', entityId: attachment._id, req });
-  res.setHeader('Content-Type', attachment.mimeType);
-  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(attachment.originalName)}"`);
-  fs.createReadStream(filePath).pipe(res);
+  res.redirect(attachment.url);
 });
 
 const remove = asyncHandler(async (req, res) => {
@@ -86,6 +92,10 @@ const remove = asyncHandler(async (req, res) => {
   if (!attachment) throw ApiError.notFound('Attachment not found');
   attachment.removedAt = new Date();
   await attachment.save();
+  if (attachment.publicId) {
+    const resourceType = attachment.mimeType === 'application/pdf' ? 'raw' : 'image';
+    cloudinary.uploader.destroy(attachment.publicId, { resource_type: resourceType }).catch(() => {});
+  }
   await recordAudit({ organizationId: req.organizationId, actorId: req.user._id, action: 'ATTACHMENT_REMOVE', entityType: 'ExpenseAttachment', entityId: attachment._id, req });
   res.status(204).send();
 });

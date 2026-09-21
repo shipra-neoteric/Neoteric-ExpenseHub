@@ -27,4 +27,9 @@ module.exports = {
     signingSecret: process.env.SLACK_SIGNING_SECRET || null,
   },
   appBaseUrl: process.env.APP_BASE_URL || null,
+  cloudinary: {
+    cloudName: process.env.CLOUDINARY_CLOUD_NAME || null,
+    apiKey: process.env.CLOUDINARY_API_KEY || null,
+    apiSecret: process.env.CLOUDINARY_API_SECRET || null,
+  },
 };

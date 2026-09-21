@@ -4,7 +4,9 @@ const expenseAttachmentSchema = new Schema(
   {
     organizationId: { type: Schema.Types.ObjectId, ref: 'Organization', required: true, index: true },
     expenseId: { type: Schema.Types.ObjectId, ref: 'Expense', required: true, index: true },
-    storageKey: { type: String, required: true },
+    storageKey: { type: String, default: null },
+    url: { type: String, default: null },
+    publicId: { type: String, default: null },
     originalName: { type: String, required: true },
     mimeType: { type: String, required: true },
     sizeBytes: { type: Number, required: true },

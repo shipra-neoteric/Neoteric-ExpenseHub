@@ -1,10 +1,7 @@
-const fs = require('fs');
-const path = require('path');
 const ExpenseAttachment = require('../models/ExpenseAttachment');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { verifyAttachmentToken } = require('../utils/signedLink');
-const env = require('../config/env');
 
 // Deliberately outside the authenticated /expenses/:id/attachments route —
 // this is the one place a request with no login session (Slack's own
@@ -16,13 +13,9 @@ const download = asyncHandler(async (req, res) => {
   if (!verifyAttachmentToken(String(attachment._id), req.query.token)) {
     throw ApiError.unauthorized('Invalid or expired link', 'INVALID_TOKEN');
   }
+  if (!attachment.url) throw ApiError.notFound('File not found');
 
-  const filePath = path.join(process.cwd(), env.uploadDir, attachment.storageKey);
-  if (!fs.existsSync(filePath)) throw ApiError.notFound('File not found');
-
-  res.setHeader('Content-Type', attachment.mimeType);
-  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(attachment.originalName)}"`);
-  fs.createReadStream(filePath).pipe(res);
+  res.redirect(attachment.url);
 });
 
 module.exports = { download };
