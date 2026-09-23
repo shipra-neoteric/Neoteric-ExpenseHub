@@ -143,7 +143,7 @@ export default function ExpenseDetailsDrawer({ expenseId, onClose, onChanged, ca
                   {data.attachments.map((a) => (
                     <a
                       key={a._id}
-                      href={`/api/expenses/${expense._id}/attachments/${a._id}`}
+                      href={a.url || `/api/expenses/${expense._id}/attachments/${a._id}`}
                       target="_blank"
                       rel="noreferrer"
                       className="theme-text flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm hover:underline dark:border-gray-700"
