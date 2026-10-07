@@ -418,29 +418,34 @@ async function rolloverDueSites({ organizationId, userId, now = new Date() }) {
   return results;
 }
 
-// One row per active site: this month's remaining balance plus the fixed
-// amount rolloverDueSites will top up next period with (the site's policy
-// default), so Finance knows exactly how much cash to arrange per site
-// before the automatic rollover runs.
+// One row per active site: this month's remaining balance, plus how much
+// cash actually needs to be transferred to bring the site back up to its
+// standard monthly float. Unlike rolloverDueSites (which always adds the
+// fixed monthly amount on top of whatever carries forward, positive or
+// negative), this is the real-world transfer amount Finance needs to
+// arrange: the standard amount *minus* what's already sitting there, so a
+// site in deficit gets topped up enough to cover the shortfall too, and a
+// site sitting on a surplus needs less transferred in.
 async function buildMonthEndSummary({ organizationId, now = new Date() }) {
   const sites = await Site.find({ organizationId, status: 'ACTIVE' }).lean();
   const rows = [];
 
   for (const site of sites) {
     const policy = await getEffectivePolicy(organizationId, site._id);
-    const nextMonthTransferPaise = policy?.defaultAllocationPaise || 0;
+    const standardAmountPaise = policy?.defaultAllocationPaise || 0;
 
     const account = await getActiveFundAccount(site._id, organizationId);
     if (!account) {
-      rows.push({ siteName: site.name, noFund: true, nextMonthTransferPaise });
+      rows.push({ siteName: site.name, noFund: true, nextMonthTransferPaise: standardAmountPaise });
       continue;
     }
     const openPeriod = await getOpenPeriod(account._id);
     if (!openPeriod) {
-      rows.push({ siteName: site.name, noFund: true, nextMonthTransferPaise });
+      rows.push({ siteName: site.name, noFund: true, nextMonthTransferPaise: standardAmountPaise });
       continue;
     }
     const balance = await computeBalance(openPeriod._id);
+    const nextMonthTransferPaise = Math.max(0, standardAmountPaise - balance.available);
     rows.push({
       siteName: site.name,
       noFund: false,
