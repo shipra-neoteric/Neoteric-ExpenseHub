@@ -12,6 +12,7 @@ const requestContext = require('./middleware/requestContext');
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
 const routes = require('./routes');
 const monthEndSummaryJob = require('./services/monthEndSummaryJob');
+const monthlyRolloverJob = require('./services/monthlyRolloverJob');
 
 const app = express();
 
@@ -43,9 +44,14 @@ if (env.nodeEnv !== 'test') app.use(morgan('dev'));
 // triggers the month-end summary. Never awaited — must not add latency or
 // ever fail a real request — and the DB-backed lock inside it guarantees it
 // actually runs at most once per day regardless of how many requests land.
+// Same self-trigger approach for the monthly rollover (closes last month's
+// fund period, carries forward the balance, tops up the new one) — fires
+// opportunistically on the month's first calendar day instead of needing an
+// external scheduler.
 if (env.nodeEnv !== 'test') {
   app.use((req, res, next) => {
     monthEndSummaryJob.maybeRunOnRequest().catch(() => {});
+    monthlyRolloverJob.maybeRunOnRequest().catch(() => {});
     next();
   });
 }
