@@ -26,7 +26,6 @@ module.exports = {
     botToken: process.env.SLACK_BOT_TOKEN || null,
     signingSecret: process.env.SLACK_SIGNING_SECRET || null,
   },
-  monthEndSummarySlackEmail: process.env.MONTH_END_SUMMARY_SLACK_EMAIL || null,
   appBaseUrl: process.env.APP_BASE_URL || null,
   cloudinary: {
     cloudName: process.env.CLOUDINARY_CLOUD_NAME || null,

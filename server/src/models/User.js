@@ -24,6 +24,7 @@ const userSchema = new Schema(
     // the login email above, since they need not match.
     slackEmail: { type: String, trim: true, lowercase: true, default: null },
     notificationsEnabled: { type: Boolean, default: true },
+    receivesMonthEndSummary: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
@@ -49,6 +50,7 @@ userSchema.methods.toSafeJSON = function toSafeJSON() {
     isActive: this.isActive,
     slackEmail: this.slackEmail || null,
     notificationsEnabled: this.notificationsEnabled,
+    receivesMonthEndSummary: this.receivesMonthEndSummary,
   };
 };
 

@@ -113,6 +113,7 @@ const userCreateSchema = z.object({
   permissions: z.array(z.string()).optional(),
   slackEmail: z.string().email().nullish(),
   notificationsEnabled: z.boolean().optional(),
+  receivesMonthEndSummary: z.boolean().optional(),
 });
 
 module.exports = {

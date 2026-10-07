@@ -26,6 +26,7 @@ const create = asyncHandler(async (req, res) => {
     permissions,
     slackEmail: req.body.slackEmail ? req.body.slackEmail.trim().toLowerCase() : null,
     notificationsEnabled: req.body.notificationsEnabled !== undefined ? req.body.notificationsEnabled : true,
+    receivesMonthEndSummary: req.body.receivesMonthEndSummary || false,
   });
   await recordAudit({ organizationId: req.organizationId, actorId: req.user._id, action: 'USER_CREATE', entityType: 'User', entityId: user._id, after: user.toSafeJSON(), req });
   res.status(201).json({ user: user.toSafeJSON() });
@@ -55,6 +56,7 @@ const update = asyncHandler(async (req, res) => {
   if (req.body.isActive !== undefined) user.isActive = req.body.isActive;
   if (req.body.slackEmail !== undefined) user.slackEmail = req.body.slackEmail ? req.body.slackEmail.trim().toLowerCase() : null;
   if (req.body.notificationsEnabled !== undefined) user.notificationsEnabled = req.body.notificationsEnabled;
+  if (req.body.receivesMonthEndSummary !== undefined) user.receivesMonthEndSummary = req.body.receivesMonthEndSummary;
   if (req.body.password) user.passwordHash = await bcrypt.hash(req.body.password, 10);
 
   await user.save();
