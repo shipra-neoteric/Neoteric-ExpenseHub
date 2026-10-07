@@ -101,7 +101,13 @@ export default function Dashboard() {
   const cards = useMemo(() => {
     const bal = summary?.balance;
     return [
-      { key: 'funded', label: 'Total Funded', value: bal ? paiseToInr(bal.funded) : '—', icon: PiggyBank },
+      {
+        key: 'funded',
+        label: 'Total Funded',
+        value: bal ? paiseToInr(bal.funded) : '—',
+        sub: bal ? `Carried over: ${paiseToInr(bal.carriedForward)} · Received this month: ${paiseToInr(bal.receivedThisPeriod)}` : undefined,
+        icon: PiggyBank,
+      },
       { key: 'approved', label: 'Approved Spend', value: bal ? paiseToInr(bal.approvedSpend) : '—', icon: TrendingUp },
       { key: 'pending', label: 'Pending Approval', value: bal ? paiseToInr(bal.pending) : '—', icon: Clock },
       {

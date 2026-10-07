@@ -30,16 +30,22 @@ async function computeBalance(fundPeriodId) {
 
   let available = 0;
   let funded = 0;
+  let carriedForward = 0;
   let postedSpend = 0;
   let reversed = 0;
 
   for (const row of rows) {
     available += row.total;
     if (FUNDED_TYPES.includes(row._id)) funded += row.total;
+    if (row._id === LEDGER_ENTRY_TYPE.CARRY_FORWARD) carriedForward += row.total;
     if (row._id === LEDGER_ENTRY_TYPE.ADJUSTMENT) funded += row.positiveTotal;
     if (row._id === LEDGER_ENTRY_TYPE.EXPENSE_POSTED) postedSpend += -row.total;
     if (row._id === LEDGER_ENTRY_TYPE.EXPENSE_REVERSAL) reversed += row.total;
   }
+  // funded lumps opening allocation + top-up + carry-forward + positive
+  // adjustments together; splitting out what carried over from the previous
+  // period leaves "received this period" as everything actually new.
+  const receivedThisPeriod = funded - carriedForward;
   // Named approvedSpend for the existing dashboard/report labels, but it's
   // really "posted spend": since rejectExpense also posts an EXPENSE_POSTED
   // deduction (the money was already spent regardless of the review
@@ -55,6 +61,8 @@ async function computeBalance(fundPeriodId) {
 
   return {
     funded,
+    carriedForward,
+    receivedThisPeriod,
     approvedSpend,
     available,
     pending,
