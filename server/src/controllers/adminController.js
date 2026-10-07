@@ -2,19 +2,8 @@ const Organization = require('../models/Organization');
 const User = require('../models/User');
 const asyncHandler = require('../utils/asyncHandler');
 const fundService = require('../services/fundService');
-const slackService = require('../services/slackService');
-const env = require('../config/env');
+const monthEndSummaryJob = require('../services/monthEndSummaryJob');
 const { PERMISSIONS } = require('../config/constants');
-
-// The external scheduler hits this once a day (same as monthly-rollover),
-// but the summary should only actually go out on the last calendar day of
-// the month — so this is the one check that decides whether "today" counts,
-// independent of whatever time of day the scheduler happens to run at.
-function isLastDayOfMonth(date) {
-  const tomorrow = new Date(date);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  return tomorrow.getMonth() !== date.getMonth();
-}
 
 // No human is logged in for the scheduled trigger, so ledger/audit entries
 // created by the rollover need some real User to attribute to. Using the
@@ -40,23 +29,13 @@ const runMonthlyRolloverForAllOrganizations = asyncHandler(async (req, res) => {
   res.json({ report });
 });
 
+// Kept as a manual/external-cron entry point alongside the opportunistic
+// in-app trigger in monthEndSummaryJob — handy for an on-demand resend or a
+// deployment that prefers an explicit scheduler. `?force=true` bypasses the
+// last-day-of-month gate for testing.
 const runMonthEndSummaryForAllOrganizations = asyncHandler(async (req, res) => {
-  const now = new Date();
-  if (!isLastDayOfMonth(now) && req.query.force !== 'true') {
-    return res.json({ skipped: true, reason: 'NOT_LAST_DAY_OF_MONTH' });
-  }
-  if (!env.monthEndSummarySlackEmail) {
-    return res.json({ skipped: true, reason: 'NO_RECIPIENT_CONFIGURED' });
-  }
-
-  const organizations = await Organization.find({ isActive: true }).lean();
-  const report = [];
-  for (const org of organizations) {
-    const summary = await fundService.buildMonthEndSummary({ organizationId: org._id, now });
-    const result = await slackService.sendMonthEndSummary({ summary, recipientEmail: env.monthEndSummarySlackEmail });
-    report.push({ organization: org.name, summary, result });
-  }
-  res.json({ report });
+  const result = await monthEndSummaryJob.runMonthEndSummaryForAllOrganizations({ force: req.query.force === 'true' });
+  res.json(result);
 });
 
 module.exports = { runMonthlyRolloverForAllOrganizations, runMonthEndSummaryForAllOrganizations };

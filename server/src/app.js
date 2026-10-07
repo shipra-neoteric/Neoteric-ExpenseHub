@@ -11,6 +11,7 @@ const env = require('./config/env');
 const requestContext = require('./middleware/requestContext');
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
 const routes = require('./routes');
+const monthEndSummaryJob = require('./services/monthEndSummaryJob');
 
 const app = express();
 
@@ -36,6 +37,18 @@ app.use(cookieParser());
 app.use(mongoSanitize());
 app.use(requestContext);
 if (env.nodeEnv !== 'test') app.use(morgan('dev'));
+
+// No external scheduler on Render's free tier, so instead of relying on one,
+// any incoming request on the month's last calendar day opportunistically
+// triggers the month-end summary. Never awaited — must not add latency or
+// ever fail a real request — and the DB-backed lock inside it guarantees it
+// actually runs at most once per day regardless of how many requests land.
+if (env.nodeEnv !== 'test') {
+  app.use((req, res, next) => {
+    monthEndSummaryJob.maybeRunOnRequest().catch(() => {});
+    next();
+  });
+}
 
 const apiLimiter = rateLimit({ windowMs: 60 * 1000, limit: 300, standardHeaders: true, legacyHeaders: false });
 app.use('/api', apiLimiter);
