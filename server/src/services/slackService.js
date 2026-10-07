@@ -162,6 +162,18 @@ function buildMonthEndSummaryBlocks({ label, rows }) {
         { type: 'mrkdwn', text: `*Transfer for next month:*\nRs. ${paiseToRupeesString(row.nextMonthTransferPaise)}` },
       ],
     });
+    // Spells out in words what the numbers above already imply, so Ananya
+    // doesn't have to do the subtraction herself before wiring money: a
+    // surplus reduces the amount to send, a deficit increases it.
+    let note;
+    if (row.availablePaise > 0) {
+      note = `Rs. ${paiseToRupeesString(row.availablePaise)} is already with the site, so send only Rs. ${paiseToRupeesString(row.nextMonthTransferPaise)}.`;
+    } else if (row.availablePaise < 0) {
+      note = `Site is short by Rs. ${paiseToRupeesString(Math.abs(row.availablePaise))} — send Rs. ${paiseToRupeesString(row.nextMonthTransferPaise)} to cover it and fund next month.`;
+    } else {
+      note = `Send the full Rs. ${paiseToRupeesString(row.nextMonthTransferPaise)} for next month.`;
+    }
+    blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: note }] });
     blocks.push({ type: 'divider' });
   }
   return blocks;
