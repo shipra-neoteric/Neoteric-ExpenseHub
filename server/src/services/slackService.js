@@ -136,6 +136,53 @@ async function sendApprovalRequest({ expense, siteName, approvers, attachment })
   return { results };
 }
 
+// One block per site, each line labelled so the recipient can read it
+// without opening the app: this month's remaining balance and the fixed
+// amount that needs to be transferred/topped-up for next month.
+function buildMonthEndSummaryBlocks({ label, rows }) {
+  const blocks = [
+    { type: 'header', text: { type: 'plain_text', text: `Month-End Fund Summary — ${label}`, emoji: true } },
+  ];
+
+  for (const row of rows) {
+    if (row.noFund) {
+      blocks.push({
+        type: 'section',
+        text: { type: 'mrkdwn', text: `*${row.siteName}*\nNo active fund account — nothing to report.` },
+      });
+      blocks.push({ type: 'divider' });
+      continue;
+    }
+    blocks.push({
+      type: 'section',
+      fields: [
+        { type: 'mrkdwn', text: `*Site:*\n${row.siteName}` },
+        { type: 'mrkdwn', text: `*Remaining this month:*\nRs. ${paiseToRupeesString(row.availablePaise)}` },
+        { type: 'mrkdwn', text: `*Pending approval:*\nRs. ${paiseToRupeesString(row.pendingPaise)}` },
+        { type: 'mrkdwn', text: `*Transfer for next month:*\nRs. ${paiseToRupeesString(row.nextMonthTransferPaise)}` },
+      ],
+    });
+    blocks.push({ type: 'divider' });
+  }
+  return blocks;
+}
+
+async function sendMonthEndSummary({ summary, recipientEmail }) {
+  if (!isConfigured()) return { skipped: true, reason: 'SLACK_NOT_CONFIGURED' };
+  if (!recipientEmail) return { skipped: true, reason: 'NO_RECIPIENT_EMAIL' };
+  try {
+    const channel = await openDmByEmail(recipientEmail);
+    const posted = await slackApi('chat.postMessage', {
+      channel,
+      blocks: buildMonthEndSummaryBlocks(summary),
+      text: `Month-End Fund Summary — ${summary.label}`,
+    });
+    return { ok: true, channel, ts: posted.ts };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
 // Replaces the interactive buttons with a static outcome line once the AGM
 // acts, while rebuilding the same detail blocks (amount, category,
 // description, receipt) so the message stays fully informative instead of
@@ -185,4 +232,4 @@ async function openRejectReasonModal({ triggerId, expenseId, responseUrl }) {
   });
 }
 
-module.exports = { isConfigured, verifySlackSignature, sendApprovalRequest, updateMessageAfterAction, slackUserEmail, openRejectReasonModal };
+module.exports = { isConfigured, verifySlackSignature, sendApprovalRequest, updateMessageAfterAction, slackUserEmail, openRejectReasonModal, sendMonthEndSummary };

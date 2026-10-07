@@ -7,4 +7,8 @@ const requireAutomationSecret = require('../middleware/requireAutomationSecret')
 // day; see DEPLOYMENT.md for the exact setup.
 router.post('/monthly-rollover', requireAutomationSecret, adminController.runMonthlyRolloverForAllOrganizations);
 
+// Hit daily by the same external scheduler; internally a no-op on every day
+// except the last day of the month (see isLastDayOfMonth in the controller).
+router.post('/month-end-summary', requireAutomationSecret, adminController.runMonthEndSummaryForAllOrganizations);
+
 module.exports = router;

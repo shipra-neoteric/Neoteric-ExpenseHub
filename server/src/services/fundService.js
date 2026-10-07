@@ -418,6 +418,42 @@ async function rolloverDueSites({ organizationId, userId, now = new Date() }) {
   return results;
 }
 
+// One row per active site: this month's remaining balance plus the fixed
+// amount rolloverDueSites will top up next period with (the site's policy
+// default), so Finance knows exactly how much cash to arrange per site
+// before the automatic rollover runs.
+async function buildMonthEndSummary({ organizationId, now = new Date() }) {
+  const sites = await Site.find({ organizationId, status: 'ACTIVE' }).lean();
+  const rows = [];
+
+  for (const site of sites) {
+    const policy = await getEffectivePolicy(organizationId, site._id);
+    const nextMonthTransferPaise = policy?.defaultAllocationPaise || 0;
+
+    const account = await getActiveFundAccount(site._id, organizationId);
+    if (!account) {
+      rows.push({ siteName: site.name, noFund: true, nextMonthTransferPaise });
+      continue;
+    }
+    const openPeriod = await getOpenPeriod(account._id);
+    if (!openPeriod) {
+      rows.push({ siteName: site.name, noFund: true, nextMonthTransferPaise });
+      continue;
+    }
+    const balance = await computeBalance(openPeriod._id);
+    rows.push({
+      siteName: site.name,
+      noFund: false,
+      availablePaise: balance.available,
+      pendingPaise: balance.pending,
+      projectedAvailablePaise: balance.projectedAvailable,
+      nextMonthTransferPaise,
+    });
+  }
+
+  return { label: monthLabel(now), rows };
+}
+
 module.exports = {
   computeBalance,
   getActiveFundAccount,
@@ -425,6 +461,7 @@ module.exports = {
   getEffectivePolicy,
   monthLabel,
   rolloverDueSites,
+  buildMonthEndSummary,
   createOpeningAllocation,
   addLedgerMovement,
   closePeriod,
