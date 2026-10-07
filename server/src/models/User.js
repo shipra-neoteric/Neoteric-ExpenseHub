@@ -23,6 +23,7 @@ const userSchema = new Schema(
     // approval requests (via Slack's users.lookupByEmail). Independent of
     // the login email above, since they need not match.
     slackEmail: { type: String, trim: true, lowercase: true, default: null },
+    notificationsEnabled: { type: Boolean, default: true },
   },
   { timestamps: true }
 );
@@ -47,6 +48,7 @@ userSchema.methods.toSafeJSON = function toSafeJSON() {
     permissions: this.permissions,
     isActive: this.isActive,
     slackEmail: this.slackEmail || null,
+    notificationsEnabled: this.notificationsEnabled,
   };
 };
 

@@ -237,7 +237,7 @@ async function notifyApproversOnSlack(expense) {
   }
 
   const [approvers, site, attachment] = await Promise.all([
-    User.find({ _id: { $in: approverIds }, isActive: true }),
+    User.find({ _id: { $in: approverIds }, isActive: true, notificationsEnabled: { $ne: false } }),
     Site.findById(expense.siteId).lean(),
     ExpenseAttachment.findOne({ expenseId: expense._id, removedAt: null }).sort({ createdAt: 1 }),
   ]);

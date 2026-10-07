@@ -112,6 +112,7 @@ const userCreateSchema = z.object({
   roleLabel: z.string().trim().min(1),
   permissions: z.array(z.string()).optional(),
   slackEmail: z.string().email().nullish(),
+  notificationsEnabled: z.boolean().optional(),
 });
 
 module.exports = {

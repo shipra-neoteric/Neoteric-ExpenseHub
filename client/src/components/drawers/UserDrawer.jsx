@@ -7,7 +7,7 @@ import { useTheme } from '../../theme/ThemeContext';
 import api, { apiErrorMessage } from '../../api/client';
 import { ROLE_PRESET_OPTIONS } from '../../pages/roleOptions';
 
-const emptyForm = { name: '', email: '', password: '', roleLabel: 'FRONT_DESK_EXECUTIVE', slackEmail: '' };
+const emptyForm = { name: '', email: '', password: '', roleLabel: 'FRONT_DESK_EXECUTIVE', slackEmail: '', notificationsEnabled: true };
 
 // Reused for both "New User" (no editUser) and editing an existing one.
 // Password is optional when editing — leave blank to keep the current one.
@@ -24,7 +24,14 @@ export default function UserDrawer({ open, onClose, onSaved, editUser }) {
     if (open) {
       setForm(
         editUser
-          ? { name: editUser.name, email: editUser.email, password: '', roleLabel: editUser.roleLabel, slackEmail: editUser.slackEmail || '' }
+          ? {
+              name: editUser.name,
+              email: editUser.email,
+              password: '',
+              roleLabel: editUser.roleLabel,
+              slackEmail: editUser.slackEmail || '',
+              notificationsEnabled: editUser.notificationsEnabled !== false,
+            }
           : emptyForm
       );
       setErrors({});
@@ -53,6 +60,7 @@ export default function UserDrawer({ open, onClose, onSaved, editUser }) {
         email: form.email.trim(),
         roleLabel: form.roleLabel,
         slackEmail: form.slackEmail.trim() || null,
+        notificationsEnabled: form.notificationsEnabled,
       };
       if (form.password) payload.password = form.password;
       if (isEdit) {
@@ -126,6 +134,15 @@ export default function UserDrawer({ open, onClose, onSaved, editUser }) {
           />
           {errors.slackEmail && <p className={fieldErrorClass}>{errors.slackEmail}</p>}
         </div>
+        <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+          <input
+            type="checkbox"
+            checked={form.notificationsEnabled}
+            onChange={(e) => setForm((f) => ({ ...f, notificationsEnabled: e.target.checked }))}
+            className="h-4 w-4 rounded border-gray-300"
+          />
+          Send Slack notifications to this user
+        </label>
       </div>
     </DrawerShell>
   );

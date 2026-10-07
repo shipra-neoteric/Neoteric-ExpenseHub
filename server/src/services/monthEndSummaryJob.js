@@ -1,4 +1,5 @@
 const Organization = require('../models/Organization');
+const User = require('../models/User');
 const ScheduledJobRun = require('../models/ScheduledJobRun');
 const fundService = require('./fundService');
 const slackService = require('./slackService');
@@ -27,6 +28,15 @@ async function runMonthEndSummaryForAllOrganizations({ now = new Date(), force =
   }
   if (!env.monthEndSummarySlackEmail) {
     return { skipped: true, reason: 'NO_RECIPIENT_CONFIGURED' };
+  }
+  // The recipient is set by a global env var, not tied to a specific org's
+  // user list, so this is a best-effort lookup — if no matching user record
+  // exists at all, default to sending (an email-only recipient with no
+  // account can't have opted out). Only an explicit notificationsEnabled:
+  // false on a matching record suppresses the send.
+  const recipientUser = await User.findOne({ slackEmail: env.monthEndSummarySlackEmail.toLowerCase() }).lean();
+  if (recipientUser && recipientUser.notificationsEnabled === false) {
+    return { skipped: true, reason: 'RECIPIENT_OPTED_OUT' };
   }
 
   const organizations = await Organization.find({ isActive: true }).lean();
