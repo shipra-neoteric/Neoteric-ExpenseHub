@@ -349,7 +349,15 @@ async function rolloverPeriod({ period, monthlyAllocationPaise, userId, label })
           { session }
         );
       }
-      if (monthlyAllocationPaise > 0) {
+      // Top-up only covers the gap up to the site's standard monthly amount
+      // — it doesn't stack a full fresh allocation on top of whatever
+      // already carried forward. A site that underspent and carries over a
+      // surplus gets topped up less (or not at all); a site in deficit gets
+      // topped up enough to both cover the shortfall and reach the standard
+      // amount. Either way the new period starts at (at most) the standard
+      // monthly amount, never carriedForward + a full new allocation.
+      const topUpPaise = Math.max(0, monthlyAllocationPaise - balance.available);
+      if (topUpPaise > 0) {
         await FundLedgerEntry.create(
           [
             {
@@ -358,7 +366,7 @@ async function rolloverPeriod({ period, monthlyAllocationPaise, userId, label })
               fundAccountId: fresh.fundAccountId,
               fundPeriodId: newPeriod._id,
               type: LEDGER_ENTRY_TYPE.TOP_UP,
-              amountPaise: monthlyAllocationPaise,
+              amountPaise: topUpPaise,
               reason: `Monthly allocation — ${label}`,
               createdBy: userId,
             },
@@ -373,7 +381,7 @@ async function rolloverPeriod({ period, monthlyAllocationPaise, userId, label })
         action: 'FUND_MONTHLY_ROLLOVER',
         entityType: 'FundPeriod',
         entityId: newPeriod._id,
-        after: { carriedForward: balance.available, monthlyAllocationPaise, label },
+        after: { carriedForward: balance.available, monthlyAllocationPaise, topUpPaise, label },
         session,
       });
       outcome = 'ROLLED_OVER';
