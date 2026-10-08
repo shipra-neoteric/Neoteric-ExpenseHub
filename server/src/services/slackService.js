@@ -174,6 +174,11 @@ function buildMonthEndSummaryBlocks({ label, rows }) {
       note = `Send the full Rs. ${paiseToRupeesString(row.nextMonthTransferPaise)} for next month.`;
     }
     blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: note }] });
+
+    if (row.spendByUser?.length) {
+      const breakdown = row.spendByUser.map((u) => `${u.name}: Rs. ${paiseToRupeesString(u.amountPaise)}`).join('\n');
+      blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*Who spent what:*\n${breakdown}` } });
+    }
     blocks.push({ type: 'divider' });
   }
   return blocks;

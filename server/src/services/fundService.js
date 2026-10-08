@@ -4,6 +4,7 @@ const FundPeriod = require('../models/FundPeriod');
 const FundLedgerEntry = require('../models/FundLedgerEntry');
 const Expense = require('../models/Expense');
 const Site = require('../models/Site');
+const User = require('../models/User');
 const ExpensePolicy = require('../models/ExpensePolicy');
 const ApiError = require('../utils/ApiError');
 const { LEDGER_ENTRY_TYPE, FUND_PERIOD_STATUS, EXPENSE_STATUS } = require('../config/constants');
@@ -434,6 +435,22 @@ async function rolloverDueSites({ organizationId, userId, now = new Date() }) {
   return results;
 }
 
+// Who actually spent what this period — grouped by whoever the expense was
+// paid by, counting APPROVED and REJECTED alike (rejected still deducted
+// real cash already spent, same as computeBalance's postedSpend). PENDING
+// expenses are deliberately excluded: that money isn't confirmed spent yet.
+async function getSpendByUser(fundPeriodId) {
+  const rows = await Expense.aggregate([
+    { $match: { fundPeriodId: new mongoose.Types.ObjectId(fundPeriodId), status: { $in: [EXPENSE_STATUS.APPROVED, EXPENSE_STATUS.REJECTED] } } },
+    { $group: { _id: '$paidByUserId', totalPaise: { $sum: '$amountPaise' } } },
+    { $sort: { totalPaise: -1 } },
+  ]);
+  const userIds = rows.map((r) => r._id).filter(Boolean);
+  const users = await User.find({ _id: { $in: userIds } }).select('name').lean();
+  const nameById = Object.fromEntries(users.map((u) => [String(u._id), u.name]));
+  return rows.map((r) => ({ name: r._id ? nameById[String(r._id)] || 'Unknown' : 'Unassigned', amountPaise: r.totalPaise }));
+}
+
 // One row per active site: this month's remaining balance, plus how much
 // cash actually needs to be transferred to bring the site back up to its
 // standard monthly float. Unlike rolloverDueSites (which always adds the
@@ -462,6 +479,7 @@ async function buildMonthEndSummary({ organizationId, now = new Date() }) {
     }
     const balance = await computeBalance(openPeriod._id);
     const nextMonthTransferPaise = Math.max(0, standardAmountPaise - balance.available);
+    const spendByUser = await getSpendByUser(openPeriod._id);
     rows.push({
       siteName: site.name,
       noFund: false,
@@ -469,6 +487,7 @@ async function buildMonthEndSummary({ organizationId, now = new Date() }) {
       pendingPaise: balance.pending,
       projectedAvailablePaise: balance.projectedAvailable,
       nextMonthTransferPaise,
+      spendByUser,
     });
   }
 
