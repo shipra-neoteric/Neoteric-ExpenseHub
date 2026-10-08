@@ -23,7 +23,7 @@ function dateKey(date) {
 // config to keep in sync with the database. `force` (the manual/testing
 // path) skips both the last-day-of-month gate and the once-per-day lock, so
 // re-running it for a quick test never collides with the real automatic run.
-async function runMonthEndSummaryForAllOrganizations({ now = new Date(), force = false } = {}) {
+async function runMonthEndSummaryForAllOrganizations({ now = new Date(), force = false, siteName = null } = {}) {
   if (!force && !isLastDayOfMonth(now)) {
     return { skipped: true, reason: 'NOT_LAST_DAY_OF_MONTH' };
   }
@@ -44,7 +44,7 @@ async function runMonthEndSummaryForAllOrganizations({ now = new Date(), force =
       continue;
     }
 
-    const summary = await fundService.buildMonthEndSummary({ organizationId: org._id, now });
+    const summary = await fundService.buildMonthEndSummary({ organizationId: org._id, now, siteName });
     const results = [];
     for (const recipient of recipients) {
       const result = await slackService.sendMonthEndSummary({ summary, recipientEmail: recipient.slackEmail });

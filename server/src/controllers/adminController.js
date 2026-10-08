@@ -19,7 +19,10 @@ const runMonthlyRolloverForAllOrganizations = asyncHandler(async (req, res) => {
 // deployment that prefers an explicit scheduler. `?force=true` bypasses the
 // last-day-of-month gate for testing.
 const runMonthEndSummaryForAllOrganizations = asyncHandler(async (req, res) => {
-  const result = await monthEndSummaryJob.runMonthEndSummaryForAllOrganizations({ force: req.query.force === 'true' });
+  const result = await monthEndSummaryJob.runMonthEndSummaryForAllOrganizations({
+    force: req.query.force === 'true',
+    siteName: req.query.site || null,
+  });
   res.json(result);
 });
 

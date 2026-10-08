@@ -464,8 +464,10 @@ async function getSpendByUser(fundPeriodId) {
 // arrange: the standard amount *minus* what's already sitting there, so a
 // site in deficit gets topped up enough to cover the shortfall too, and a
 // site sitting on a surplus needs less transferred in.
-async function buildMonthEndSummary({ organizationId, now = new Date() }) {
-  const sites = await Site.find({ organizationId, status: 'ACTIVE' }).lean();
+async function buildMonthEndSummary({ organizationId, now = new Date(), siteName = null }) {
+  const query = { organizationId, status: 'ACTIVE' };
+  if (siteName) query.name = siteName;
+  const sites = await Site.find(query).lean();
   // Silver Estate reported last, everything else in whatever order they came back.
   sites.sort((a, b) => (a.name === 'Silver Estate') - (b.name === 'Silver Estate'));
   const rows = [];
