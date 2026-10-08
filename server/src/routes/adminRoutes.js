@@ -11,4 +11,8 @@ router.post('/monthly-rollover', requireAutomationSecret, adminController.runMon
 // except the last day of the month (see isLastDayOfMonth in the controller).
 router.post('/month-end-summary', requireAutomationSecret, adminController.runMonthEndSummaryForAllOrganizations);
 
+// One-time data fix — see the controller for why this exists. Safe to call
+// more than once (no-ops after the first successful run).
+router.post('/fix-garden-city-october-topup', requireAutomationSecret, adminController.fixGardenCityOctoberTopUp);
+
 module.exports = router;
