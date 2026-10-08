@@ -205,7 +205,11 @@ async function closePeriod({ fundPeriodId, userId, reason, carryForward, req }) 
       period.reconciliationNotes = reason || '';
       await period.save({ session });
 
-      if (carryForward && balance.available > 0) {
+      // Carries forward whatever is actually there — positive or negative —
+      // same as the automatic rollover. A manual close used to only carry
+      // forward a positive balance, silently dropping a deficit and leaving
+      // the site with no open period at all; that asymmetry is gone now.
+      if (carryForward) {
         const nextLabel = `${period.label}-CF`;
         [newPeriod] = await FundPeriod.create(
           [
@@ -222,21 +226,23 @@ async function closePeriod({ fundPeriodId, userId, reason, carryForward, req }) 
           ],
           { session }
         );
-        await FundLedgerEntry.create(
-          [
-            {
-              organizationId: period.organizationId,
-              siteId: period.siteId,
-              fundAccountId: period.fundAccountId,
-              fundPeriodId: newPeriod._id,
-              type: LEDGER_ENTRY_TYPE.CARRY_FORWARD,
-              amountPaise: balance.available,
-              reason: `Carried forward from ${period.label}`,
-              createdBy: userId,
-            },
-          ],
-          { session }
-        );
+        if (balance.available !== 0) {
+          await FundLedgerEntry.create(
+            [
+              {
+                organizationId: period.organizationId,
+                siteId: period.siteId,
+                fundAccountId: period.fundAccountId,
+                fundPeriodId: newPeriod._id,
+                type: LEDGER_ENTRY_TYPE.CARRY_FORWARD,
+                amountPaise: balance.available,
+                reason: `Carried forward from ${period.label}`,
+                createdBy: userId,
+              },
+            ],
+            { session }
+          );
+        }
       }
       await recordAudit({
         organizationId: period.organizationId,

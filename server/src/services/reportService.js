@@ -27,9 +27,14 @@ async function buildReportData({ organizationId, siteIds, dateFrom, dateTo, cate
     categoryWise: {},
   };
   for (const e of expenses) {
-    if (e.status === EXPENSE_STATUS.APPROVED) totals.approvedSpend += e.amountPaise;
+    // Matches fundService.computeBalance's definition: a REJECTED expense
+    // still posted a real ledger deduction (the cash was already spent
+    // regardless of the review outcome), so it counts as spend here too —
+    // otherwise this report's total silently diverged from the Dashboard
+    // and Funds page figures for the same period.
+    if ([EXPENSE_STATUS.APPROVED, EXPENSE_STATUS.REJECTED].includes(e.status)) totals.approvedSpend += e.amountPaise;
     if (e.status === EXPENSE_STATUS.PENDING_APPROVAL) totals.pendingAmount += e.amountPaise;
-    if ([EXPENSE_STATUS.APPROVED, EXPENSE_STATUS.PENDING_APPROVAL].includes(e.status)) {
+    if ([EXPENSE_STATUS.APPROVED, EXPENSE_STATUS.REJECTED, EXPENSE_STATUS.PENDING_APPROVAL].includes(e.status)) {
       const key = e.categorySnapshot?.name || 'Other';
       totals.categoryWise[key] = (totals.categoryWise[key] || 0) + e.amountPaise;
     }
