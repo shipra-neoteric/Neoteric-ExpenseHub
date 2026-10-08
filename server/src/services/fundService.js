@@ -286,14 +286,6 @@ function formatDate(date) {
   return `${String(date.getDate()).padStart(2, '0')} ${MONTH_NAMES[date.getMonth()]} ${date.getFullYear()}`;
 }
 
-// Human-readable range for the Slack header — the summary covers month-to-
-// date (1st of the current calendar month through "now"), since it can run
-// any day the recipient asks for it, not only on the actual last day.
-function monthRangeLabel(now = new Date()) {
-  const start = new Date(now.getFullYear(), now.getMonth(), 1);
-  return `${formatDate(start)} – ${formatDate(now)}`;
-}
-
 // Rolls one site's fund forward into the current calendar month: whatever
 // was left in the old period carries forward (even if zero or negative —
 // unlike a manual close, automation must never leave a site with no open
@@ -498,6 +490,12 @@ async function buildMonthEndSummary({ organizationId, now = new Date() }) {
     rows.push({
       siteName: site.name,
       noFund: false,
+      // The period's own startDate, not the 1st of the calendar month — a
+      // site whose fund period was opened mid-month (or whose rollover never
+      // actually ran) reports from whenever it genuinely started, since that
+      // balance has been accumulating since then, not just since this month
+      // began.
+      periodRangeLabel: `${formatDate(new Date(openPeriod.startDate))} – ${formatDate(now)}`,
       availablePaise: balance.available,
       pendingPaise: balance.pending,
       projectedAvailablePaise: balance.projectedAvailable,
@@ -506,7 +504,7 @@ async function buildMonthEndSummary({ organizationId, now = new Date() }) {
     });
   }
 
-  return { label: monthRangeLabel(now), rows };
+  return { label: formatDate(now), rows };
 }
 
 module.exports = {

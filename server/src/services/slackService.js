@@ -138,10 +138,14 @@ async function sendApprovalRequest({ expense, siteName, approvers, attachment })
 
 // One block per site, each line labelled so the recipient can read it
 // without opening the app: this month's remaining balance and the fixed
-// amount that needs to be transferred/topped-up for next month.
+// amount that needs to be transferred/topped-up for next month. Each site
+// gets its own date range (periodRangeLabel) rather than one global range in
+// the header — a site whose fund period started mid-month, or never rolled
+// over, has been accumulating since its own actual start date, not since
+// the 1st of this calendar month.
 function buildMonthEndSummaryBlocks({ label, rows }) {
   const blocks = [
-    { type: 'header', text: { type: 'plain_text', text: `Month-End Fund Summary — ${label}`, emoji: true } },
+    { type: 'header', text: { type: 'plain_text', text: `Month-End Fund Summary — as of ${label}`, emoji: true } },
   ];
 
   for (const row of rows) {
@@ -157,6 +161,7 @@ function buildMonthEndSummaryBlocks({ label, rows }) {
       type: 'section',
       fields: [
         { type: 'mrkdwn', text: `*Site:*\n${row.siteName}` },
+        { type: 'mrkdwn', text: `*Period:*\n${row.periodRangeLabel}` },
         { type: 'mrkdwn', text: `*Remaining this month:*\nRs. ${paiseToRupeesString(row.availablePaise)}` },
         { type: 'mrkdwn', text: `*Pending approval:*\nRs. ${paiseToRupeesString(row.pendingPaise)}` },
         { type: 'mrkdwn', text: `*Transfer for next month:*\nRs. ${paiseToRupeesString(row.nextMonthTransferPaise)}` },
