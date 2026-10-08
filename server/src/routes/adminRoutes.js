@@ -15,4 +15,9 @@ router.post('/month-end-summary', requireAutomationSecret, adminController.runMo
 // more than once (no-ops after the first successful run).
 router.post('/fix-garden-city-october-topup', requireAutomationSecret, adminController.fixGardenCityOctoberTopUp);
 
+// Generic one-time catch-up for any site whose rollover ran before the
+// top-up-cap fix was deployed. ?site=<name> required. Safe to call
+// repeatedly — a site already correct is reported as such and left alone.
+router.post('/reconcile-site-topup', requireAutomationSecret, adminController.reconcileSiteTopUp);
+
 module.exports = router;

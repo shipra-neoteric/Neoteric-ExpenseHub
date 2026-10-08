@@ -2,9 +2,11 @@ const asyncHandler = require('../utils/asyncHandler');
 const monthlyRolloverJob = require('../services/monthlyRolloverJob');
 const monthEndSummaryJob = require('../services/monthEndSummaryJob');
 const Site = require('../models/Site');
+const User = require('../models/User');
 const FundLedgerEntry = require('../models/FundLedgerEntry');
 const fundService = require('../services/fundService');
 const ApiError = require('../utils/ApiError');
+const { PERMISSIONS } = require('../config/constants');
 
 // Kept as a manual/external-cron entry point alongside the opportunistic
 // in-app trigger in monthlyRolloverJob — handy for an on-demand run or a
@@ -59,4 +61,66 @@ const fixGardenCityOctoberTopUp = asyncHandler(async (req, res) => {
   res.json({ fixed: true, balance });
 });
 
-module.exports = { runMonthlyRolloverForAllOrganizations, runMonthEndSummaryForAllOrganizations, fixGardenCityOctoberTopUp };
+// Generic version of the Garden City fix above, for any site whose rollover
+// ran before the top-up-cap fix was deployed and so stacked (or
+// under-covered) its top-up instead of exactly bridging carry-forward up to
+// the standard monthly amount. Recomputes what the TOP_UP entry for the
+// site's *current open period* should have been from its actual
+// carry-forward and the site's policy, then corrects that entry in place
+// (creating one if none exists, deleting it if the correct amount is zero).
+// Safe to call repeatedly — a site already at its standard amount is
+// reported as already-correct and left untouched.
+const reconcileSiteTopUp = asyncHandler(async (req, res) => {
+  const { site: siteName } = req.query;
+  if (!siteName) throw ApiError.badRequest('site query param is required', 'SITE_REQUIRED');
+  const site = await Site.findOne({ name: siteName });
+  if (!site) throw ApiError.notFound(`Site "${siteName}" not found`);
+
+  const account = await fundService.getActiveFundAccount(site._id, site.organizationId);
+  const period = account && (await fundService.getOpenPeriod(account._id));
+  if (!period) throw ApiError.notFound(`No open fund period for ${siteName}`);
+
+  const policy = await fundService.getEffectivePolicy(site.organizationId, site._id);
+  const standardAmountPaise = policy?.defaultAllocationPaise || 0;
+
+  const carryForwardEntry = await FundLedgerEntry.findOne({ fundPeriodId: period._id, type: 'CARRY_FORWARD' });
+  const carriedForwardPaise = carryForwardEntry?.amountPaise || 0;
+  const correctTopUpPaise = Math.max(0, standardAmountPaise - carriedForwardPaise);
+
+  const existingTopUp = await FundLedgerEntry.findOne({ fundPeriodId: period._id, type: 'TOP_UP' });
+  const before = await fundService.computeBalance(period._id);
+
+  if ((existingTopUp?.amountPaise || 0) === correctTopUpPaise) {
+    return res.json({ skipped: true, reason: 'ALREADY_CORRECT', balance: before });
+  }
+
+  if (correctTopUpPaise === 0) {
+    if (existingTopUp) await FundLedgerEntry.deleteOne({ _id: existingTopUp._id });
+  } else if (existingTopUp) {
+    existingTopUp.amountPaise = correctTopUpPaise;
+    await existingTopUp.save();
+  } else {
+    const actor = await User.findOne({ organizationId: site.organizationId, isActive: true, permissions: PERMISSIONS.MASTER_MANAGE });
+    if (!actor) throw ApiError.badRequest('No active Master Admin to attribute this entry to', 'NO_SYSTEM_ACTOR');
+    await FundLedgerEntry.create({
+      organizationId: site.organizationId,
+      siteId: site._id,
+      fundAccountId: period.fundAccountId,
+      fundPeriodId: period._id,
+      type: 'TOP_UP',
+      amountPaise: correctTopUpPaise,
+      reason: `Monthly allocation — ${period.label} (reconciled)`,
+      createdBy: actor._id,
+    });
+  }
+
+  const balance = await fundService.computeBalance(period._id);
+  res.json({ fixed: true, before, balance });
+});
+
+module.exports = {
+  runMonthlyRolloverForAllOrganizations,
+  runMonthEndSummaryForAllOrganizations,
+  fixGardenCityOctoberTopUp,
+  reconcileSiteTopUp,
+};
