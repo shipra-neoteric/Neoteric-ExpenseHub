@@ -39,7 +39,10 @@ export default function MonthlyTransfers() {
     load();
   }, [load]);
 
-  const siteOptions = useMemo(() => (data?.rows || []).map((r) => ({ value: r.siteId || r.siteName, label: r.siteName })), [data]);
+  const siteOptions = useMemo(
+    () => [{ value: '', label: 'All sites' }, ...(data?.rows || []).map((r) => ({ value: r.siteId || r.siteName, label: r.siteName }))],
+    [data]
+  );
   const visibleRows = useMemo(() => {
     const rows = data?.rows || [];
     if (!siteFilter) return rows;
