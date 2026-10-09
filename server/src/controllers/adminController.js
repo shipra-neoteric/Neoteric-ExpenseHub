@@ -86,7 +86,7 @@ const reconcileSiteTopUp = asyncHandler(async (req, res) => {
 
   const carryForwardEntry = await FundLedgerEntry.findOne({ fundPeriodId: period._id, type: 'CARRY_FORWARD' });
   const carriedForwardPaise = carryForwardEntry?.amountPaise || 0;
-  const correctTopUpPaise = Math.max(0, standardAmountPaise - carriedForwardPaise);
+  const correctTopUpPaise = Math.min(standardAmountPaise, Math.max(0, standardAmountPaise - carriedForwardPaise));
 
   const existingTopUp = await FundLedgerEntry.findOne({ fundPeriodId: period._id, type: 'TOP_UP' });
   const before = await fundService.computeBalance(period._id);
