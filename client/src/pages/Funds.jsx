@@ -20,6 +20,11 @@ const LEDGER_TYPE_LABELS = {
   CARRY_FORWARD: 'Carried Forward',
 };
 
+// Everything that puts money INTO the fund, as opposed to EXPENSE_POSTED/
+// EXPENSE_REVERSAL which track spend — this is what "Transfers only" filters
+// the ledger down to: a clean record of what was actually sent to the site.
+const TRANSFER_TYPES = ['OPENING_ALLOCATION', 'TOP_UP', 'ADJUSTMENT', 'CARRY_FORWARD'];
+
 export default function Funds() {
   const { hasPermission } = useAuth();
   const { getThemeColor } = useTheme();
@@ -31,6 +36,7 @@ export default function Funds() {
   const [loading, setLoading] = useState(false);
   const [allocationDrawerOpen, setAllocationDrawerOpen] = useState(false);
   const [movementDrawer, setMovementDrawer] = useState(null); // 'topup' | 'adjustment' | null
+  const [transfersOnly, setTransfersOnly] = useState(false);
 
   const canManage = hasPermission(PERMISSIONS.FUND_MANAGE);
   const canReopen = hasPermission(PERMISSIONS.MASTER_MANAGE);
@@ -66,6 +72,7 @@ export default function Funds() {
     loadPeriodData();
   }, [loadPeriodData]);
 
+  const displayedLedger = transfersOnly ? ledger.filter((e) => TRANSFER_TYPES.includes(e.type)) : ledger;
   const currentPeriod = periods.find((p) => p._id === periodId);
   const isOpenPeriod = currentPeriod && ['OPEN', 'REOPENED'].includes(currentPeriod.status);
   const siteName = sites.find((s) => s._id === siteId)?.name;
@@ -191,6 +198,13 @@ export default function Funds() {
           )}
 
           <div className="rounded-xl border border-gray-200 bg-white shadow dark:border-gray-700 dark:bg-gray-800">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-3 dark:border-gray-700">
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Ledger</p>
+              <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+                <input type="checkbox" checked={transfersOnly} onChange={(e) => setTransfersOnly(e.target.checked)} className="h-4 w-4 rounded border-gray-300" />
+                Transfers only (hide spend)
+              </label>
+            </div>
             <div className="custom-horizontal-scrollbar overflow-x-auto">
               <table className="w-full min-w-[600px]">
                 <thead className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
@@ -203,7 +217,7 @@ export default function Funds() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                  {ledger.map((entry) => (
+                  {displayedLedger.map((entry) => (
                     <tr key={entry._id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                       <td className="px-6 py-4 text-gray-600 dark:text-gray-300">{formatDateTime(entry.postedAt)}</td>
                       <td className="px-6 py-4 text-gray-900 dark:text-white">{LEDGER_TYPE_LABELS[entry.type] || entry.type}</td>
@@ -212,10 +226,10 @@ export default function Funds() {
                       <td className={`px-6 py-4 text-right font-bold ${entry.amountPaise < 0 ? 'text-red-500' : 'text-green-600 dark:text-green-400'}`}>{paiseToInr(entry.amountPaise)}</td>
                     </tr>
                   ))}
-                  {ledger.length === 0 && (
+                  {displayedLedger.length === 0 && (
                     <tr>
                       <td colSpan={5} className="px-6 py-10 text-center text-gray-400">
-                        No ledger entries yet.
+                        {transfersOnly ? 'No fund transfers yet.' : 'No ledger entries yet.'}
                       </td>
                     </tr>
                   )}
