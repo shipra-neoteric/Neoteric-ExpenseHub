@@ -5,6 +5,7 @@ import { paiseToInr, formatDateTime } from '../utils/format';
 import { useTheme } from '../theme/ThemeContext';
 import ThemedSelect from '../components/common/ThemedSelect';
 import FundMovementDrawer from '../components/drawers/FundMovementDrawer';
+import SiteTransferDetailDrawer from '../components/drawers/SiteTransferDetailDrawer';
 
 // One page, every site: how much each site has left, how much is owed to
 // bring it up to its standard monthly amount, and a button to send that
@@ -18,6 +19,7 @@ export default function MonthlyTransfers() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [payRow, setPayRow] = useState(null);
+  const [detailRow, setDetailRow] = useState(null);
   const [siteFilter, setSiteFilter] = useState('');
 
   const load = useCallback(async () => {
@@ -76,7 +78,11 @@ export default function MonthlyTransfers() {
           {visibleRows.map((row) => {
             const needsTransfer = !row.noFund && row.nextMonthTransferPaise > 0;
             return (
-              <div key={row.siteId || row.siteName} className="flex flex-col gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow dark:border-gray-700 dark:bg-gray-800">
+              <div
+                key={row.siteId || row.siteName}
+                onClick={() => !row.noFund && setDetailRow(row)}
+                className={`flex flex-col gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow dark:border-gray-700 dark:bg-gray-800 ${!row.noFund ? 'cursor-pointer transition hover:shadow-md' : ''}`}
+              >
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-2.5">
                     <div className="theme-gradient flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-white">
@@ -113,7 +119,10 @@ export default function MonthlyTransfers() {
                 {!row.noFund && (
                   <button
                     type="button"
-                    onClick={() => setPayRow(row)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPayRow(row);
+                    }}
                     style={{ backgroundColor: getThemeColor() }}
                     className="flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-90"
                   >
@@ -186,6 +195,8 @@ export default function MonthlyTransfers() {
           load();
         }}
       />
+
+      <SiteTransferDetailDrawer open={!!detailRow} onClose={() => setDetailRow(null)} periodId={detailRow?.periodId} siteName={detailRow?.siteName} />
     </div>
   );
 }
