@@ -20,4 +20,7 @@ router.post('/fix-garden-city-october-topup', requireAutomationSecret, adminCont
 // repeatedly — a site already correct is reported as such and left alone.
 router.post('/reconcile-site-topup', requireAutomationSecret, adminController.reconcileSiteTopUp);
 
+// One-time data fix — see the controller for why this exists.
+router.post('/remove-nature-park-bridge-topup', requireAutomationSecret, adminController.removeNatureParkBridgeTopUp);
+
 module.exports = router;

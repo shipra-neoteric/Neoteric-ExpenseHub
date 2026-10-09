@@ -119,9 +119,31 @@ const reconcileSiteTopUp = asyncHandler(async (req, res) => {
   res.json({ fixed: true, before, balance });
 });
 
+// One-time cleanup for Nature Park: the rollover auto-added a Rs. 689
+// bridging top-up (to reach the Rs. 4,500 standard) on top of the Rs. 3,811
+// already carried forward — but Ananya's real-world transfer (Rs. 3,963,
+// already folded into that carry-forward) was itself meant to be this
+// cycle's funding. The extra Rs. 689 was never actually sent, so it's
+// removed here, bringing Available back down to the real Rs. 3,811.
+// Hardcoded to this one entry — a one-off fix, not a general-purpose tool.
+// Safe to call more than once (no-ops once the entry is gone).
+const removeNatureParkBridgeTopUp = asyncHandler(async (req, res) => {
+  const NEW_PERIOD_ID = '6ac8aba21196cf57252b2542';
+  const BRIDGE_TOPUP_ENTRY_ID = '6ac8aba21196cf57252b2547';
+
+  const entry = await FundLedgerEntry.findById(BRIDGE_TOPUP_ENTRY_ID);
+  if (!entry) return res.json({ skipped: true, reason: 'ALREADY_REMOVED' });
+
+  await FundLedgerEntry.deleteOne({ _id: BRIDGE_TOPUP_ENTRY_ID });
+
+  const balance = await fundService.computeBalance(NEW_PERIOD_ID);
+  res.json({ fixed: true, balance });
+});
+
 module.exports = {
   runMonthlyRolloverForAllOrganizations,
   runMonthEndSummaryForAllOrganizations,
   fixGardenCityOctoberTopUp,
   reconcileSiteTopUp,
+  removeNatureParkBridgeTopUp,
 };
