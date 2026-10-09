@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Building2, Loader2 } from 'lucide-react';
 import DrawerShell, { DrawerCancelButton } from './DrawerShell';
+import ExpenseDetailsDrawer from './ExpenseDetailsDrawer';
 import api, { apiErrorMessage } from '../../api/client';
 import { paiseToInr, formatDateTime } from '../../utils/format';
 
@@ -21,22 +22,26 @@ export default function SiteTransferDetailDrawer({ open, onClose, periodId, site
   const [ledger, setLedger] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [expenseDetailId, setExpenseDetailId] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const [b, l] = await Promise.all([api.get(`/funds/periods/${periodId}/balance`), api.get(`/funds/periods/${periodId}/ledger`)]);
+      setBalance(b.data.balance);
+      setLedger(l.data.items);
+    } catch (err) {
+      setError(apiErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!open || !periodId) return;
-    setLoading(true);
-    setError('');
-    (async () => {
-      try {
-        const [b, l] = await Promise.all([api.get(`/funds/periods/${periodId}/balance`), api.get(`/funds/periods/${periodId}/ledger`)]);
-        setBalance(b.data.balance);
-        setLedger(l.data.items);
-      } catch (err) {
-        setError(apiErrorMessage(err));
-      } finally {
-        setLoading(false);
-      }
-    })();
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, periodId]);
 
   return (
@@ -75,7 +80,13 @@ export default function SiteTransferDetailDrawer({ open, onClose, periodId, site
                         <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{formatDateTime(entry.postedAt)}</td>
                         <td className="px-4 py-3 text-gray-900 dark:text-white">{LEDGER_TYPE_LABELS[entry.type] || entry.type}</td>
                         <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
-                          {entry.relatedExpenseId?.expenseNumber || entry.reason || '—'}
+                          {entry.relatedExpenseId?.expenseNumber ? (
+                            <button type="button" onClick={() => setExpenseDetailId(entry.relatedExpenseId._id)} className="theme-text font-medium hover:underline">
+                              {entry.relatedExpenseId.expenseNumber}
+                            </button>
+                          ) : (
+                            entry.reason || '—'
+                          )}
                           {entry.paidToName && <span className="block text-xs text-gray-400">Paid to: {entry.paidToName}</span>}
                           {entry.proofUrl && (
                             <a href={entry.proofUrl} target="_blank" rel="noreferrer" className="theme-text block text-xs hover:underline">
@@ -100,6 +111,8 @@ export default function SiteTransferDetailDrawer({ open, onClose, periodId, site
           </div>
         )
       )}
+
+      <ExpenseDetailsDrawer expenseId={expenseDetailId} onClose={() => setExpenseDetailId(null)} onChanged={load} categories={[]} sites={[]} />
     </DrawerShell>
   );
 }
