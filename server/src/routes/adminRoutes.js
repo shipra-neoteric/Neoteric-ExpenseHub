@@ -22,5 +22,6 @@ router.post('/reconcile-site-topup', requireAutomationSecret, adminController.re
 
 // One-time data fix — see the controller for why this exists.
 router.post('/split-nature-park-transfer', requireAutomationSecret, adminController.splitNatureParkTransferFromCarryForward);
+router.post('/add-nature-park-october-spend-adjustment', requireAutomationSecret, adminController.addNatureParkOctoberSpendAdjustment);
 
 module.exports = router;

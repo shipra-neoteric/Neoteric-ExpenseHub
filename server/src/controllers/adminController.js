@@ -152,10 +152,43 @@ const splitNatureParkTransferFromCarryForward = asyncHandler(async (req, res) =>
   res.json({ fixed: true, balance });
 });
 
+// One-time cleanup for Nature Park: Rs. 689 of expenses (Oct 1-6) were
+// approved against the *old* period before it rolled over, but that spend
+// is real and happened within this funding cycle — it needs to reduce
+// Available without changing Total Funded/Received/Carried Forward. An
+// ADJUSTMENT entry does exactly that (only a positive adjustment counts
+// toward "funded"). Hardcoded to this one period/amount — a one-off fix.
+// Safe to call more than once (no-ops once the adjustment exists).
+const addNatureParkOctoberSpendAdjustment = asyncHandler(async (req, res) => {
+  const NEW_PERIOD_ID = '6ac8aba21196cf57252b2542';
+  const REASON = 'Adjustment for Oct 1-6 expenses already approved before this period rolled over';
+
+  const existing = await FundLedgerEntry.findOne({ fundPeriodId: NEW_PERIOD_ID, type: 'ADJUSTMENT', reason: REASON });
+  if (existing) return res.json({ skipped: true, reason: 'ALREADY_APPLIED' });
+
+  const period = await require('../models/FundPeriod').findById(NEW_PERIOD_ID);
+  const actor = await User.findOne({ organizationId: period.organizationId, isActive: true, permissions: PERMISSIONS.MASTER_MANAGE });
+  if (!actor) throw ApiError.badRequest('No active Master Admin to attribute this entry to', 'NO_SYSTEM_ACTOR');
+
+  await fundService.addLedgerMovement({
+    organizationId: period.organizationId,
+    siteId: period.siteId,
+    fundPeriodId: NEW_PERIOD_ID,
+    type: 'ADJUSTMENT',
+    amountPaise: -68900,
+    reason: REASON,
+    userId: actor._id,
+  });
+
+  const balance = await fundService.computeBalance(NEW_PERIOD_ID);
+  res.json({ fixed: true, balance });
+});
+
 module.exports = {
   runMonthlyRolloverForAllOrganizations,
   runMonthEndSummaryForAllOrganizations,
   fixGardenCityOctoberTopUp,
   reconcileSiteTopUp,
   splitNatureParkTransferFromCarryForward,
+  addNatureParkOctoberSpendAdjustment,
 };
