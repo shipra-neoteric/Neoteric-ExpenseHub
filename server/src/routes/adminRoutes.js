@@ -11,17 +11,4 @@ router.post('/monthly-rollover', requireAutomationSecret, adminController.runMon
 // except the last day of the month (see isLastDayOfMonth in the controller).
 router.post('/month-end-summary', requireAutomationSecret, adminController.runMonthEndSummaryForAllOrganizations);
 
-// One-time data fix — see the controller for why this exists. Safe to call
-// more than once (no-ops after the first successful run).
-router.post('/fix-garden-city-october-topup', requireAutomationSecret, adminController.fixGardenCityOctoberTopUp);
-
-// Generic one-time catch-up for any site whose rollover ran before the
-// top-up-cap fix was deployed. ?site=<name> required. Safe to call
-// repeatedly — a site already correct is reported as such and left alone.
-router.post('/reconcile-site-topup', requireAutomationSecret, adminController.reconcileSiteTopUp);
-
-// One-time data fix — see the controller for why this exists.
-router.post('/split-nature-park-transfer', requireAutomationSecret, adminController.splitNatureParkTransferFromCarryForward);
-router.post('/add-nature-park-october-spend-adjustment', requireAutomationSecret, adminController.addNatureParkOctoberSpendAdjustment);
-
 module.exports = router;

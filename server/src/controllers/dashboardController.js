@@ -18,7 +18,8 @@ const summary = asyncHandler(async (req, res) => {
     ? await FundPeriod.findOne({ _id: periodId, fundAccountId: account._id })
     : await fundService.getOpenPeriod(account._id);
   if (!period) {
-    return res.json({ hasFund: true, hasOpenPeriod: false, fundAccountId: account._id });
+    const standardAmountPaise = await fundService.getStandardAmountPaise(req.organizationId, siteId);
+    return res.json({ hasFund: true, hasOpenPeriod: false, fundAccountId: account._id, standardAmountPaise });
   }
 
   const [balance, standardAmountPaise] = await Promise.all([

@@ -58,7 +58,7 @@ export default function SiteTransferDetailDrawer({ open, onClose, periodId, site
         balance && (
           <div className="space-y-5">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Kpi label="Total Funded" value={paiseToInr(standardAmountPaise ?? balance.funded)} />
+              <Kpi label="Total Funded" value={standardAmountPaise != null ? paiseToInr(standardAmountPaise) : '—'} />
               <Kpi label="Approved Spend" value={paiseToInr(balance.approvedSpend)} />
               <Kpi label="Pending" value={paiseToInr(balance.pending)} />
               <Kpi label="Available" value={paiseToInr(balance.projectedAvailable)} sub={`Before pending: ${paiseToInr(balance.available)}`} highlight />

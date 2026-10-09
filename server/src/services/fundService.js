@@ -33,11 +33,11 @@ const FUNDED_TYPES = [LEDGER_ENTRY_TYPE.OPENING_ALLOCATION, LEDGER_ENTRY_TYPE.TO
 
 // Single source of truth for balances: everything is derived from the
 // append-only ledger + live expense statuses, never from a stored running total.
-async function computeBalance(fundPeriodId) {
+async function computeBalance(fundPeriodId, session) {
   const rows = await FundLedgerEntry.aggregate([
     { $match: { fundPeriodId: new mongoose.Types.ObjectId(fundPeriodId) } },
     { $group: { _id: '$type', total: { $sum: '$amountPaise' }, positiveTotal: { $sum: { $cond: [{ $gt: ['$amountPaise', 0] }, '$amountPaise', 0] } } } },
-  ]);
+  ]).session(session || null);
 
   let available = 0;
   let funded = 0;
@@ -67,7 +67,7 @@ async function computeBalance(fundPeriodId) {
   const pendingAgg = await Expense.aggregate([
     { $match: { fundPeriodId: new mongoose.Types.ObjectId(fundPeriodId), status: EXPENSE_STATUS.PENDING_APPROVAL } },
     { $group: { _id: null, total: { $sum: '$amountPaise' } } },
-  ]);
+  ]).session(session || null);
   const pending = pendingAgg[0]?.total || 0;
 
   return {
@@ -162,7 +162,7 @@ async function addLedgerMovement({ organizationId, siteId, fundPeriodId, type, a
         }
       }
       if (requireNonNegativeResult) {
-        const balance = await computeBalance(fundPeriodId);
+        const balance = await computeBalance(fundPeriodId, session);
         if (balance.available + amountPaise < 0) {
           throw ApiError.conflict('This adjustment would make the available balance negative', 'INSUFFICIENT_BALANCE');
         }
@@ -207,7 +207,7 @@ async function closePeriod({ fundPeriodId, userId, reason, carryForward, req }) 
       if (pendingCount > 0) {
         throw ApiError.conflict('Cannot close a period with pending or returned expenses', 'PENDING_ITEMS_EXIST');
       }
-      const balance = await computeBalance(fundPeriodId);
+      const balance = await computeBalance(fundPeriodId, session);
       period.status = FUND_PERIOD_STATUS.CLOSED;
       period.closedBy = userId;
       period.closedAt = new Date();
@@ -330,7 +330,7 @@ async function rolloverPeriod({ period, monthlyAllocationPaise, userId, label })
         return;
       }
 
-      const balance = await computeBalance(fresh._id);
+      const balance = await computeBalance(fresh._id, session);
       fresh.status = FUND_PERIOD_STATUS.CLOSED;
       fresh.closedBy = userId;
       fresh.closedAt = new Date();
