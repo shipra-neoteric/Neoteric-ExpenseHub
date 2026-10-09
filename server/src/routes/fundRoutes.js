@@ -4,11 +4,13 @@ const { requireAuth, requirePermission } = require('../middleware/auth');
 const { requireSiteAccess } = require('../middleware/siteScope');
 const { requireFundPeriodSiteAccess } = require('../middleware/fundPeriodScope');
 const validate = require('../middleware/validate');
+const upload = require('../config/upload');
 const { PERMISSIONS } = require('../config/constants');
 const { openingAllocationSchema, ledgerMovementSchema, adjustmentSchema, closePeriodSchema } = require('../validators/schemas');
 
 router.use(requireAuth, requirePermission(PERMISSIONS.FUND_VIEW, PERMISSIONS.FUND_MANAGE));
 
+router.get('/overview', fundController.overview);
 router.get('/periods', requireSiteAccess((req) => req.query.siteId), fundController.listPeriods);
 router.get('/periods/:periodId/balance', requireFundPeriodSiteAccess, fundController.getBalance);
 router.get('/periods/:periodId/ledger', requireFundPeriodSiteAccess, fundController.getLedger);
@@ -24,6 +26,7 @@ router.post(
   '/periods/:periodId/top-up',
   requirePermission(PERMISSIONS.FUND_MANAGE),
   requireFundPeriodSiteAccess,
+  upload.single('file'),
   validate(ledgerMovementSchema),
   fundController.topUp
 );

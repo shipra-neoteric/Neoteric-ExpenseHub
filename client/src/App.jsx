@@ -6,6 +6,7 @@ import RequirePermission from './routes/RequirePermission';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Funds from './pages/Funds';
+import MonthlyTransfers from './pages/MonthlyTransfers';
 import Reports from './pages/Reports';
 import MasterHome from './pages/Master/MasterHome';
 import UserManagement from './pages/UserManagement';
@@ -29,6 +30,14 @@ export default function App() {
           element={
             <RequirePermission permission={PERMISSIONS.FUND_VIEW}>
               <Funds />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="monthly-transfers"
+          element={
+            <RequirePermission permission={PERMISSIONS.FUND_MANAGE}>
+              <MonthlyTransfers />
             </RequirePermission>
           }
         />

@@ -1,13 +1,14 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Wallet, ShieldCheck, Users, FileBarChart, X } from 'lucide-react';
+import { LayoutDashboard, Wallet, Send, ShieldCheck, Users, FileBarChart, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { PERMISSIONS } from '../../utils/permissions';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Site Expenses', icon: LayoutDashboard, permission: PERMISSIONS.VIEW },
   { to: '/funds', label: 'Funds / Imprest', icon: Wallet, permission: PERMISSIONS.FUND_VIEW },
+  { to: '/monthly-transfers', label: 'Monthly Transfers', icon: Send, permission: PERMISSIONS.FUND_MANAGE },
   { to: '/reports', label: 'Reports', icon: FileBarChart, permission: PERMISSIONS.REPORT_EXPORT },
   { to: '/master', label: 'Master', icon: ShieldCheck, permission: PERMISSIONS.MASTER_MANAGE },
   { to: '/users', label: 'User Management', icon: Users, permission: PERMISSIONS.USER_SCOPE_MANAGE },

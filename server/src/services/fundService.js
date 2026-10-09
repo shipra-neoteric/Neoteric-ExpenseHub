@@ -134,7 +134,7 @@ async function createOpeningAllocation({ organizationId, siteId, amountPaise, la
   }
 }
 
-async function addLedgerMovement({ organizationId, siteId, fundPeriodId, type, amountPaise, reason, userId, idempotencyKey, req, requireNonNegativeResult = false }) {
+async function addLedgerMovement({ organizationId, siteId, fundPeriodId, type, amountPaise, reason, userId, idempotencyKey, req, requireNonNegativeResult = false, proofUrl = null, proofPublicId = null, paidToName = null }) {
   const session = await mongoose.startSession();
   try {
     let entry;
@@ -158,7 +158,7 @@ async function addLedgerMovement({ organizationId, siteId, fundPeriodId, type, a
         }
       }
       const [created] = await FundLedgerEntry.create(
-        [{ organizationId, siteId, fundAccountId: period.fundAccountId, fundPeriodId, type, amountPaise, reason, createdBy: userId, idempotencyKey }],
+        [{ organizationId, siteId, fundAccountId: period.fundAccountId, fundPeriodId, type, amountPaise, reason, createdBy: userId, idempotencyKey, proofUrl, proofPublicId, paidToName }],
         { session }
       );
       entry = created;
@@ -168,7 +168,7 @@ async function addLedgerMovement({ organizationId, siteId, fundPeriodId, type, a
         action: `FUND_${type}`,
         entityType: 'FundLedgerEntry',
         entityId: entry._id,
-        after: { amountPaise, reason },
+        after: { amountPaise, reason, hasProof: !!proofUrl },
         reason,
         req,
         session,
@@ -496,6 +496,8 @@ async function buildMonthEndSummary({ organizationId, now = new Date(), siteName
     const nextMonthTransferPaise = Math.max(0, standardAmountPaise - balance.available);
     const spendByUser = await getSpendByUser(openPeriod._id);
     rows.push({
+      siteId: String(site._id),
+      periodId: String(openPeriod._id),
       siteName: site.name,
       noFund: false,
       // The period's own startDate, not the 1st of the calendar month — a
@@ -515,6 +517,30 @@ async function buildMonthEndSummary({ organizationId, now = new Date(), siteName
   return { label: formatDate(now), rows };
 }
 
+// Every top-up ever sent, across all sites in the org — the "who got paid,
+// when, how much" record for the Monthly Transfers page. Distinct from the
+// regular Funds ledger (which is scoped to one period at a time): this is
+// deliberately org-wide and site-agnostic so it reads as one combined log.
+async function getRecentTransfers({ organizationId, limit = 50 }) {
+  const entries = await FundLedgerEntry.find({ organizationId, type: LEDGER_ENTRY_TYPE.TOP_UP })
+    .sort({ postedAt: -1 })
+    .limit(limit)
+    .populate('siteId', 'name')
+    .populate('createdBy', 'name')
+    .lean();
+  return entries.map((e) => ({
+    id: String(e._id),
+    siteId: e.siteId?._id ? String(e.siteId._id) : null,
+    siteName: e.siteId?.name || 'Unknown site',
+    amountPaise: e.amountPaise,
+    paidToName: e.paidToName,
+    reason: e.reason,
+    proofUrl: e.proofUrl,
+    sentBy: e.createdBy?.name,
+    postedAt: e.postedAt,
+  }));
+}
+
 module.exports = {
   computeBalance,
   getActiveFundAccount,
@@ -523,6 +549,7 @@ module.exports = {
   monthLabel,
   rolloverDueSites,
   buildMonthEndSummary,
+  getRecentTransfers,
   createOpeningAllocation,
   addLedgerMovement,
   closePeriod,

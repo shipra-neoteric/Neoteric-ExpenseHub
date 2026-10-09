@@ -6,6 +6,41 @@ const asyncHandler = require('../utils/asyncHandler');
 const { rupeesToPaise, isValidPositivePaise } = require('../utils/money');
 const { LEDGER_ENTRY_TYPE } = require('../config/constants');
 const fundService = require('../services/fundService');
+const cloudinary = require('../config/cloudinary');
+
+const ALLOWED_PROOF_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf']);
+
+// Optional "payment proof" attached to a top-up — a screenshot/photo of the
+// actual bank transfer, so there's evidence the money was really sent to the
+// site, not just a system record. Returns null fields if no file was sent.
+async function uploadProofIfPresent(file) {
+  if (!file) return { proofUrl: null, proofPublicId: null };
+  if (!ALLOWED_PROOF_MIME.has(file.mimetype)) {
+    throw ApiError.badRequest('Unsupported file type. Use JPG, PNG, WEBP, or PDF.', 'UNSUPPORTED_MIME');
+  }
+  const resourceType = file.mimetype === 'application/pdf' ? 'raw' : 'image';
+  const result = await new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream({ resource_type: resourceType, folder: 'expensehub/fund-proofs' }, (err, res) => {
+      if (err) reject(err);
+      else resolve(res);
+    });
+    stream.end(file.buffer);
+  });
+  return { proofUrl: result.secure_url, proofPublicId: result.public_id };
+}
+
+// One row per active site — remaining balance, pending, and how much needs
+// to be transferred to bring the site back up to its standard monthly
+// amount. Backs the "Monthly Transfers" page so Master/Finance can send
+// every site's payment from one screen instead of switching the site
+// dropdown on the regular Funds page one at a time.
+const overview = asyncHandler(async (req, res) => {
+  const [summary, transfers] = await Promise.all([
+    fundService.buildMonthEndSummary({ organizationId: req.organizationId }),
+    fundService.getRecentTransfers({ organizationId: req.organizationId }),
+  ]);
+  res.json({ ...summary, transfers });
+});
 
 const listPeriods = asyncHandler(async (req, res) => {
   const { siteId } = req.query;
@@ -50,6 +85,7 @@ const topUp = asyncHandler(async (req, res) => {
   if (!isValidPositivePaise(amountPaise)) throw ApiError.badRequest('Invalid amount', 'INVALID_AMOUNT');
   const period = await FundPeriod.findById(req.params.periodId);
   if (!period) throw ApiError.notFound('Fund period not found');
+  const { proofUrl, proofPublicId } = await uploadProofIfPresent(req.file);
   const entry = await fundService.addLedgerMovement({
     organizationId: req.organizationId,
     siteId: period.siteId,
@@ -59,6 +95,9 @@ const topUp = asyncHandler(async (req, res) => {
     reason: req.body.reason,
     userId: req.user._id,
     idempotencyKey: req.body.idempotencyKey,
+    proofUrl,
+    proofPublicId,
+    paidToName: req.body.paidToName.trim(),
     req,
   });
   res.status(201).json({ entry });
@@ -109,4 +148,4 @@ const runRollover = asyncHandler(async (req, res) => {
   res.json({ results });
 });
 
-module.exports = { listPeriods, getBalance, getLedger, openingAllocation, topUp, adjustment, closePeriod, reopenPeriod, runRollover };
+module.exports = { overview, listPeriods, getBalance, getLedger, openingAllocation, topUp, adjustment, closePeriod, reopenPeriod, runRollover };

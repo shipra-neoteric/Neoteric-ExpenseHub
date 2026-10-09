@@ -8,9 +8,10 @@ const fundService = require('../services/fundService');
 const ApiError = require('../utils/ApiError');
 const { PERMISSIONS } = require('../config/constants');
 
-// Kept as a manual/external-cron entry point alongside the opportunistic
-// in-app trigger in monthlyRolloverJob — handy for an on-demand run or a
-// deployment that prefers an explicit scheduler.
+// Manual/external-cron entry point only — the automatic in-app trigger was
+// removed (see app.js) now that Finance sends each site's top-up by hand via
+// the Monthly Transfers page. Still here for whoever wants to run it
+// on-demand, or wire up an external scheduler.
 const runMonthlyRolloverForAllOrganizations = asyncHandler(async (req, res) => {
   const result = await monthlyRolloverJob.runMonthlyRolloverForAllOrganizations();
   res.json(result);

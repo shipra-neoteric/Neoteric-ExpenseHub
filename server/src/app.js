@@ -12,7 +12,6 @@ const requestContext = require('./middleware/requestContext');
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
 const routes = require('./routes');
 const monthEndSummaryJob = require('./services/monthEndSummaryJob');
-const monthlyRolloverJob = require('./services/monthlyRolloverJob');
 
 const app = express();
 
@@ -44,14 +43,17 @@ if (env.nodeEnv !== 'test') app.use(morgan('dev'));
 // triggers the month-end summary. Never awaited — must not add latency or
 // ever fail a real request — and the DB-backed lock inside it guarantees it
 // actually runs at most once per day regardless of how many requests land.
-// Same self-trigger approach for the monthly rollover (closes last month's
-// fund period, carries forward the balance, tops up the new one) — fires
-// opportunistically on the month's first calendar day instead of needing an
-// external scheduler.
+//
+// The equivalent automatic trigger for monthlyRolloverJob was intentionally
+// removed: with the Monthly Transfers page, Finance now reviews and sends
+// each site's exact top-up amount manually (with proof), so an unattended
+// rollover auto-topping-up every site on the 1st would double up with
+// that manual payment instead of replacing it. fundController.runRollover
+// (the "Run Monthly Rollover" button) still exists for whoever wants to
+// trigger it by hand.
 if (env.nodeEnv !== 'test') {
   app.use((req, res, next) => {
     monthEndSummaryJob.maybeRunOnRequest().catch(() => {});
-    monthlyRolloverJob.maybeRunOnRequest().catch(() => {});
     next();
   });
 }

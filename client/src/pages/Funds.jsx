@@ -221,7 +221,15 @@ export default function Funds() {
                     <tr key={entry._id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                       <td className="px-6 py-4 text-gray-600 dark:text-gray-300">{formatDateTime(entry.postedAt)}</td>
                       <td className="px-6 py-4 text-gray-900 dark:text-white">{LEDGER_TYPE_LABELS[entry.type] || entry.type}</td>
-                      <td className="px-6 py-4 text-gray-600 dark:text-gray-300">{entry.relatedExpenseId?.expenseNumber || entry.reason || '—'}</td>
+                      <td className="px-6 py-4 text-gray-600 dark:text-gray-300">
+                        {entry.relatedExpenseId?.expenseNumber || entry.reason || '—'}
+                        {entry.paidToName && <span className="block text-xs text-gray-400">Paid to: {entry.paidToName}</span>}
+                        {entry.proofUrl && (
+                          <a href={entry.proofUrl} target="_blank" rel="noreferrer" className="block text-xs text-brand hover:underline">
+                            View payment proof
+                          </a>
+                        )}
+                      </td>
                       <td className="px-6 py-4 text-gray-600 dark:text-gray-300">{entry.createdBy?.name}</td>
                       <td className={`px-6 py-4 text-right font-bold ${entry.amountPaise < 0 ? 'text-red-500' : 'text-green-600 dark:text-green-400'}`}>{paiseToInr(entry.amountPaise)}</td>
                     </tr>

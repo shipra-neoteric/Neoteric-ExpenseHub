@@ -82,6 +82,7 @@ const openingAllocationSchema = z.object({
 const ledgerMovementSchema = z.object({
   amount: moneyRupees,
   reason: z.string().trim().min(3).max(500),
+  paidToName: z.string().trim().min(1, 'Paid To is required').max(200),
   idempotencyKey: z.string().max(100).optional(),
 });
 

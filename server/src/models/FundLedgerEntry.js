@@ -14,6 +14,17 @@ const fundLedgerEntrySchema = new Schema(
     amountPaise: { type: Number, required: true },
     relatedExpenseId: { type: Schema.Types.ObjectId, ref: 'Expense', default: null },
     reason: { type: String, trim: true },
+    // Proof of an actual real-world payment (e.g. a bank transfer
+    // screenshot) for this entry — set when Master/Finance attaches one
+    // while adding a top-up, so there's evidence the money was really sent
+    // to the site, not just a system record.
+    proofUrl: { type: String, default: null },
+    proofPublicId: { type: String, default: null },
+    // Who actually received the money (e.g. the site's front desk
+    // executive) — free text since not every recipient is necessarily a
+    // registered User, kept alongside the proof so there's a clear record of
+    // both "paid to whom" and "evidence it was sent".
+    paidToName: { type: String, trim: true, default: null },
     idempotencyKey: { type: String, default: null },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     postedAt: { type: Date, default: Date.now },
