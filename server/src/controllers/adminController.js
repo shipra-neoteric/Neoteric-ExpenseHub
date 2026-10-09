@@ -119,22 +119,34 @@ const reconcileSiteTopUp = asyncHandler(async (req, res) => {
   res.json({ fixed: true, before, balance });
 });
 
-// One-time cleanup for Nature Park: the rollover auto-added a Rs. 689
-// bridging top-up (to reach the Rs. 4,500 standard) on top of the Rs. 3,811
-// already carried forward — but Ananya's real-world transfer (Rs. 3,963,
-// already folded into that carry-forward) was itself meant to be this
-// cycle's funding. The extra Rs. 689 was never actually sent, so it's
-// removed here, bringing Available back down to the real Rs. 3,811.
-// Hardcoded to this one entry — a one-off fix, not a general-purpose tool.
-// Safe to call more than once (no-ops once the entry is gone).
-const removeNatureParkBridgeTopUp = asyncHandler(async (req, res) => {
+// One-time cleanup for Nature Park: wanted display is Total Funded =
+// Rs. 4,500 (the standard), with Ananya's real transfer (Rs. 3,963, to
+// Viveek Rohtak) showing as this month's "Received", and Carried Forward
+// as the balancing Rs. 537 (4,500 - 3,963). The transfer was recorded as a
+// TOP_UP in the *old* (now-closed) period, so it's moved into the new
+// period here, and the new period's carry-forward entry is set to the
+// Rs. 537 balance. Hardcoded to these exact IDs — a one-off fix, not a
+// general-purpose tool. Safe to call more than once (no-ops once moved).
+const splitNatureParkTransferFromCarryForward = asyncHandler(async (req, res) => {
   const NEW_PERIOD_ID = '6ac8aba21196cf57252b2542';
-  const BRIDGE_TOPUP_ENTRY_ID = '6ac8aba21196cf57252b2547';
+  const CARRY_FORWARD_ENTRY_ID = '6ac8aba21196cf57252b2544';
+  const TRANSFER_ENTRY_ID = '6ac8aaf0d98f5bfb0bcba61b';
+  const CORRECTED_CARRY_FORWARD_PAISE = 53700;
 
-  const entry = await FundLedgerEntry.findById(BRIDGE_TOPUP_ENTRY_ID);
-  if (!entry) return res.json({ skipped: true, reason: 'ALREADY_REMOVED' });
+  const transferEntry = await FundLedgerEntry.findById(TRANSFER_ENTRY_ID);
+  if (!transferEntry) throw ApiError.notFound('Transfer entry not found');
+  if (String(transferEntry.fundPeriodId) === NEW_PERIOD_ID) {
+    return res.json({ skipped: true, reason: 'ALREADY_MOVED' });
+  }
 
-  await FundLedgerEntry.deleteOne({ _id: BRIDGE_TOPUP_ENTRY_ID });
+  const carryForwardEntry = await FundLedgerEntry.findById(CARRY_FORWARD_ENTRY_ID);
+  if (!carryForwardEntry) throw ApiError.notFound('Carry-forward entry not found');
+
+  carryForwardEntry.amountPaise = CORRECTED_CARRY_FORWARD_PAISE;
+  await carryForwardEntry.save();
+
+  transferEntry.fundPeriodId = NEW_PERIOD_ID;
+  await transferEntry.save();
 
   const balance = await fundService.computeBalance(NEW_PERIOD_ID);
   res.json({ fixed: true, balance });
@@ -145,5 +157,5 @@ module.exports = {
   runMonthEndSummaryForAllOrganizations,
   fixGardenCityOctoberTopUp,
   reconcileSiteTopUp,
-  removeNatureParkBridgeTopUp,
+  splitNatureParkTransferFromCarryForward,
 };
