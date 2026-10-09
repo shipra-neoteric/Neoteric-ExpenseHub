@@ -363,12 +363,13 @@ async function rolloverPeriod({ period, monthlyAllocationPaise, userId, label })
       }
       // Top-up only covers the gap up to the site's standard monthly amount
       // — it doesn't stack a full fresh allocation on top of whatever
-      // already carried forward. A site that underspent and carries over a
-      // surplus gets topped up less (or not at all); a site in deficit gets
-      // topped up enough to both cover the shortfall and reach the standard
-      // amount. Either way the new period starts at (at most) the standard
-      // monthly amount, never carriedForward + a full new allocation.
-      const topUpPaise = Math.max(0, monthlyAllocationPaise - balance.available);
+      // already carried forward, and it never exceeds the standard amount
+      // either. A site that underspent and carries over a surplus gets
+      // topped up less (or not at all). A site that overspent (negative
+      // carry-forward) does NOT get the deficit covered on top — it still
+      // only gets the standard amount, and the shortfall stays reflected in
+      // its balance going forward, not bailed out with extra cash.
+      const topUpPaise = Math.min(monthlyAllocationPaise, Math.max(0, monthlyAllocationPaise - balance.available));
       if (topUpPaise > 0) {
         await FundLedgerEntry.create(
           [
@@ -463,13 +464,12 @@ async function getSpendByUser(fundPeriodId) {
 }
 
 // One row per active site: this month's remaining balance, plus how much
-// cash actually needs to be transferred to bring the site back up to its
-// standard monthly float. Unlike rolloverDueSites (which always adds the
-// fixed monthly amount on top of whatever carries forward, positive or
-// negative), this is the real-world transfer amount Finance needs to
-// arrange: the standard amount *minus* what's already sitting there, so a
-// site in deficit gets topped up enough to cover the shortfall too, and a
-// site sitting on a surplus needs less transferred in.
+// cash actually needs to be transferred this month — the standard amount
+// minus what's already sitting there, capped at the standard amount itself.
+// A site sitting on a surplus needs less transferred in. A site in deficit
+// (overspent) does NOT get the shortfall covered on top of the standard
+// amount — it's never sent more than the standard float, so an overspend
+// stays reflected in its own balance rather than being bailed out.
 async function buildMonthEndSummary({ organizationId, now = new Date(), siteName = null }) {
   const query = { organizationId, status: 'ACTIVE' };
   if (siteName) query.name = siteName;
@@ -493,11 +493,16 @@ async function buildMonthEndSummary({ organizationId, now = new Date(), siteName
       continue;
     }
     const balance = await computeBalance(openPeriod._id);
-    const nextMonthTransferPaise = Math.max(0, standardAmountPaise - balance.available);
+    const nextMonthTransferPaise = Math.min(standardAmountPaise, Math.max(0, standardAmountPaise - balance.available));
     const spendByUser = await getSpendByUser(openPeriod._id);
     rows.push({
       siteId: String(site._id),
       periodId: String(openPeriod._id),
+      periodLabel: openPeriod.label,
+      // A manually-closed period's carry-forward successor is labelled
+      // "<oldLabel>-CF", not a clean "YYYY-MM" — still counts as this
+      // month's cycle if it actually started within this calendar month.
+      isCurrentMonth: monthLabel(new Date(openPeriod.startDate)) === monthLabel(now),
       siteName: site.name,
       noFund: false,
       // The period's own startDate, not the 1st of the calendar month — a

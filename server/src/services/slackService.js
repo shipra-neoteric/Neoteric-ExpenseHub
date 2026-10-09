@@ -174,7 +174,7 @@ function buildMonthEndSummaryBlocks({ label, rows }) {
     if (row.availablePaise > 0) {
       note = `Rs. ${paiseToRupeesString(row.availablePaise)} is already with the site, so send only Rs. ${paiseToRupeesString(row.nextMonthTransferPaise)}.`;
     } else if (row.availablePaise < 0) {
-      note = `Site is short by Rs. ${paiseToRupeesString(Math.abs(row.availablePaise))} — send Rs. ${paiseToRupeesString(row.nextMonthTransferPaise)} to cover it and fund next month.`;
+      note = `Site is short by Rs. ${paiseToRupeesString(Math.abs(row.availablePaise))} (overspent) — still only send the standard Rs. ${paiseToRupeesString(row.nextMonthTransferPaise)}; the shortfall isn't covered extra.`;
     } else {
       note = `Send the full Rs. ${paiseToRupeesString(row.nextMonthTransferPaise)} for next month.`;
     }

@@ -1,11 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Loader2, Send, Building2, CheckCircle2, FileText } from 'lucide-react';
+import { Loader2, Send, Building2, CheckCircle2, FileText, Lock } from 'lucide-react';
 import api, { apiErrorMessage } from '../api/client';
 import { paiseToInr, formatDateTime } from '../utils/format';
 import { useTheme } from '../theme/ThemeContext';
 import ThemedSelect from '../components/common/ThemedSelect';
 import FundMovementDrawer from '../components/drawers/FundMovementDrawer';
 import SiteTransferDetailDrawer from '../components/drawers/SiteTransferDetailDrawer';
+
+function isLastDayOfMonth(date) {
+  const tomorrow = new Date(date);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return tomorrow.getMonth() !== date.getMonth();
+}
 
 // One page, every site: how much each site has left, how much is owed to
 // bring it up to its standard monthly amount, and a button to send that
@@ -21,6 +27,7 @@ export default function MonthlyTransfers() {
   const [payRow, setPayRow] = useState(null);
   const [detailRow, setDetailRow] = useState(null);
   const [siteFilter, setSiteFilter] = useState('');
+  const canSendToday = useMemo(() => isLastDayOfMonth(new Date()), []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -62,6 +69,11 @@ export default function MonthlyTransfers() {
           <p className="text-sm text-gray-500 dark:text-gray-400">
             {data ? `As of ${data.label}` : 'Send each site its monthly payment from one place'}
           </p>
+          {!canSendToday && (
+            <p className="mt-1 flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+              <Lock className="h-3.5 w-3.5" /> Sites already on this month&apos;s cycle unlock on the last day of the month. Sites not yet rolled over stay open.
+            </p>
+          )}
         </div>
         <div className="w-56">
           <ThemedSelect label="Site" value={siteFilter} onChange={setSiteFilter} options={siteOptions} placeholder="All sites" />
@@ -80,6 +92,11 @@ export default function MonthlyTransfers() {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {visibleRows.map((row) => {
             const needsTransfer = !row.noFund && row.nextMonthTransferPaise > 0;
+            // A site whose rollover hasn't happened yet is still mid-cycle on
+            // an older period — it was never locked to begin with, so the
+            // month-end gate only applies once a site is actually on the
+            // current month's period.
+            const rowCanSend = canSendToday || !row.isCurrentMonth;
             return (
               <div
                 key={row.siteId || row.siteName}
@@ -122,14 +139,18 @@ export default function MonthlyTransfers() {
                 {!row.noFund && (
                   <button
                     type="button"
+                    disabled={!rowCanSend}
                     onClick={(e) => {
                       e.stopPropagation();
-                      setPayRow(row);
+                      if (rowCanSend) setPayRow(row);
                     }}
-                    style={{ backgroundColor: getThemeColor() }}
-                    className="flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-90"
+                    title={rowCanSend ? undefined : 'Available only on the last day of the month'}
+                    style={rowCanSend ? { backgroundColor: getThemeColor() } : undefined}
+                    className={`flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition ${
+                      rowCanSend ? 'text-white hover:opacity-90' : 'cursor-not-allowed bg-gray-200 text-gray-400 dark:bg-gray-700 dark:text-gray-500'
+                    }`}
                   >
-                    <Send className="h-4 w-4" /> Send Payment
+                    {rowCanSend ? <Send className="h-4 w-4" /> : <Lock className="h-4 w-4" />} Send Payment
                   </button>
                 )}
               </div>
