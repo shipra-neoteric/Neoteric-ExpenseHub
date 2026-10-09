@@ -104,7 +104,7 @@ export default function Dashboard() {
       {
         key: 'funded',
         label: 'Total Funded',
-        value: bal ? paiseToInr(bal.funded) : '—',
+        value: summary?.standardAmountPaise != null ? paiseToInr(summary.standardAmountPaise) : '—',
         sub: bal ? `Carried over: ${paiseToInr(bal.carriedForward)} · Received this month: ${paiseToInr(bal.receivedThisPeriod)}` : undefined,
         icon: PiggyBank,
       },

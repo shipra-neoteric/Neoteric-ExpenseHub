@@ -32,6 +32,7 @@ export default function Funds() {
   const [periods, setPeriods] = useState([]);
   const [periodId, setPeriodId] = useState('');
   const [balance, setBalance] = useState(null);
+  const [standardAmountPaise, setStandardAmountPaise] = useState(null);
   const [ledger, setLedger] = useState([]);
   const [loading, setLoading] = useState(false);
   const [allocationDrawerOpen, setAllocationDrawerOpen] = useState(false);
@@ -52,6 +53,7 @@ export default function Funds() {
   const loadPeriodData = useCallback(async () => {
     if (!periodId) {
       setBalance(null);
+      setStandardAmountPaise(null);
       setLedger([]);
       return;
     }
@@ -59,6 +61,7 @@ export default function Funds() {
     try {
       const [b, l] = await Promise.all([api.get(`/funds/periods/${periodId}/balance`), api.get(`/funds/periods/${periodId}/ledger`)]);
       setBalance(b.data.balance);
+      setStandardAmountPaise(b.data.standardAmountPaise);
       setLedger(l.data.items);
     } finally {
       setLoading(false);
@@ -178,7 +181,7 @@ export default function Funds() {
       ) : balance ? (
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Kpi label="Total Funded" value={paiseToInr(balance.funded)} />
+            <Kpi label="Total Funded" value={paiseToInr(standardAmountPaise ?? balance.funded)} />
             <Kpi label="Approved Spend" value={paiseToInr(balance.approvedSpend)} />
             <Kpi label="Pending" value={paiseToInr(balance.pending)} />
             <Kpi label="Available" value={paiseToInr(balance.projectedAvailable)} sub={`Before pending: ${paiseToInr(balance.available)}`} highlight />

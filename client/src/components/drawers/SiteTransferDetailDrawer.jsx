@@ -19,6 +19,7 @@ const LEDGER_TYPE_LABELS = {
 // just scoped to this one site without switching dropdowns.
 export default function SiteTransferDetailDrawer({ open, onClose, periodId, siteName }) {
   const [balance, setBalance] = useState(null);
+  const [standardAmountPaise, setStandardAmountPaise] = useState(null);
   const [ledger, setLedger] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -30,6 +31,7 @@ export default function SiteTransferDetailDrawer({ open, onClose, periodId, site
     try {
       const [b, l] = await Promise.all([api.get(`/funds/periods/${periodId}/balance`), api.get(`/funds/periods/${periodId}/ledger`)]);
       setBalance(b.data.balance);
+      setStandardAmountPaise(b.data.standardAmountPaise);
       setLedger(l.data.items);
     } catch (err) {
       setError(apiErrorMessage(err));
@@ -56,7 +58,7 @@ export default function SiteTransferDetailDrawer({ open, onClose, periodId, site
         balance && (
           <div className="space-y-5">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Kpi label="Total Funded" value={paiseToInr(balance.funded)} />
+              <Kpi label="Total Funded" value={paiseToInr(standardAmountPaise ?? balance.funded)} />
               <Kpi label="Approved Spend" value={paiseToInr(balance.approvedSpend)} />
               <Kpi label="Pending" value={paiseToInr(balance.pending)} />
               <Kpi label="Available" value={paiseToInr(balance.projectedAvailable)} sub={`Before pending: ${paiseToInr(balance.available)}`} highlight />

@@ -52,8 +52,12 @@ const listPeriods = asyncHandler(async (req, res) => {
 });
 
 const getBalance = asyncHandler(async (req, res) => {
-  const balance = await fundService.computeBalance(req.params.periodId);
-  res.json({ balance });
+  const period = await FundPeriod.findById(req.params.periodId).lean();
+  const [balance, standardAmountPaise] = await Promise.all([
+    fundService.computeBalance(req.params.periodId),
+    period ? fundService.getStandardAmountPaise(period.organizationId, period.siteId) : 0,
+  ]);
+  res.json({ balance, standardAmountPaise });
 });
 
 const getLedger = asyncHandler(async (req, res) => {

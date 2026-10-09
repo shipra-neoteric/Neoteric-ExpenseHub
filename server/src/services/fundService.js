@@ -19,6 +19,16 @@ async function getEffectivePolicy(organizationId, siteId) {
   return ExpensePolicy.findOne({ organizationId, siteId: null });
 }
 
+// "Total Funded" (Dashboard, Funds page, site detail drawer) must always
+// read as this fixed amount — never a number that bakes in a negative
+// carry-forward, which can make it look smaller than what was actually
+// funded, or even come out negative. The carried-over/received-this-month
+// breakdown is shown separately; this is only the headline figure.
+async function getStandardAmountPaise(organizationId, siteId) {
+  const policy = await getEffectivePolicy(organizationId, siteId);
+  return policy?.defaultAllocationPaise || 0;
+}
+
 const FUNDED_TYPES = [LEDGER_ENTRY_TYPE.OPENING_ALLOCATION, LEDGER_ENTRY_TYPE.TOP_UP, LEDGER_ENTRY_TYPE.CARRY_FORWARD];
 
 // Single source of truth for balances: everything is derived from the
@@ -551,6 +561,7 @@ module.exports = {
   getActiveFundAccount,
   getOpenPeriod,
   getEffectivePolicy,
+  getStandardAmountPaise,
   monthLabel,
   rolloverDueSites,
   buildMonthEndSummary,

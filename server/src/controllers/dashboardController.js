@@ -21,7 +21,10 @@ const summary = asyncHandler(async (req, res) => {
     return res.json({ hasFund: true, hasOpenPeriod: false, fundAccountId: account._id });
   }
 
-  const balance = await fundService.computeBalance(period._id);
+  const [balance, standardAmountPaise] = await Promise.all([
+    fundService.computeBalance(period._id),
+    fundService.getStandardAmountPaise(req.organizationId, siteId),
+  ]);
 
   const missingReceiptsAgg = await Expense.aggregate([
     { $match: { fundPeriodId: period._id, status: { $in: [EXPENSE_STATUS.PENDING_APPROVAL, EXPENSE_STATUS.APPROVED] } } },
@@ -48,6 +51,7 @@ const summary = asyncHandler(async (req, res) => {
     hasOpenPeriod: true,
     period,
     balance,
+    standardAmountPaise,
     missingReceipts,
     statusCounts: Object.fromEntries(statusCounts.map((s) => [s._id, s.count])),
   });
