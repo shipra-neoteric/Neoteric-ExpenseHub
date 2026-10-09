@@ -113,8 +113,12 @@ export default function Dashboard() {
       {
         key: 'available',
         label: 'Available Balance',
-        value: bal ? paiseToInr(bal.available) : '—',
-        sub: bal ? `Projected: ${paiseToInr(bal.projectedAvailable)}` : undefined,
+        // Shown net of pending approvals, not the raw ledger balance — that
+        // raw figure (before pending bills are subtracted) is still visible
+        // in the sub-line, since it's the real cash-on-hand number, just not
+        // the one that should guide "can I spend this" decisions.
+        value: bal ? paiseToInr(bal.projectedAvailable) : '—',
+        sub: bal ? `Before pending: ${paiseToInr(bal.available)}` : undefined,
         icon: Wallet,
       },
       { key: 'missing_receipts', label: 'Missing Receipts', value: summary?.missingReceipts ?? '—', icon: Paperclip },

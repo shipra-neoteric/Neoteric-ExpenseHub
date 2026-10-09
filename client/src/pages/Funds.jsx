@@ -174,7 +174,7 @@ export default function Funds() {
             <Kpi label="Total Funded" value={paiseToInr(balance.funded)} />
             <Kpi label="Approved Spend" value={paiseToInr(balance.approvedSpend)} />
             <Kpi label="Pending" value={paiseToInr(balance.pending)} />
-            <Kpi label="Available" value={paiseToInr(balance.available)} highlight />
+            <Kpi label="Available" value={paiseToInr(balance.projectedAvailable)} sub={`Before pending: ${paiseToInr(balance.available)}`} highlight />
           </div>
 
           {canManage && isOpenPeriod && (
@@ -261,11 +261,12 @@ export default function Funds() {
   );
 }
 
-function Kpi({ label, value, highlight }) {
+function Kpi({ label, value, sub, highlight }) {
   return (
     <div className={`rounded-lg bg-white p-3 shadow dark:bg-gray-800 sm:p-4 ${highlight ? 'ring-2 ring-[var(--theme-primary)]' : ''}`}>
       <p className="text-xs text-gray-600 dark:text-gray-400 sm:text-sm">{label}</p>
       <p className="mt-2 text-2xl font-medium text-gray-900 dark:text-white sm:text-3xl">{value}</p>
+      {sub && <p className="mt-0.5 text-xs text-gray-400">{sub}</p>}
     </div>
   );
 }

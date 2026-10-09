@@ -96,7 +96,11 @@ export default function ExpenseDrawer({ open, onClose, siteId, sites, categories
     const n = parseFloat(form.amount);
     return Number.isFinite(n) ? Math.round(n * 100) : 0;
   }, [form.amount]);
-  const projectedAfter = balance ? balance.available - amountPaise : null;
+  // Matches the server's own submit-time check (available - pending - this
+  // amount), not the raw ledger balance — otherwise this preview looks
+  // comfortably positive while other pending bills already reserve that
+  // money, and the server rejects the submit anyway.
+  const projectedAfter = balance ? balance.projectedAvailable - amountPaise : null;
   const isDirty = serialize(form) !== savedSnapshotRef.current;
 
   const confirmBeforeClose = async () => {
@@ -291,7 +295,7 @@ export default function ExpenseDrawer({ open, onClose, siteId, sites, categories
           <div className="grid grid-cols-2 gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-[13px] dark:border-gray-700 dark:bg-gray-900/40">
             <div>
               <p className="text-gray-500 dark:text-gray-400">Balance before</p>
-              <p className="font-bold text-gray-900 dark:text-white">{paiseToInr(balance.available)}</p>
+              <p className="font-bold text-gray-900 dark:text-white">{paiseToInr(balance.projectedAvailable)}</p>
             </div>
             <div>
               <p className="text-gray-500 dark:text-gray-400">Projected after</p>
