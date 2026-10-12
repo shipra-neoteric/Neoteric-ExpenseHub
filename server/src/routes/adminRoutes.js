@@ -11,4 +11,8 @@ router.post('/monthly-rollover', requireAutomationSecret, adminController.runMon
 // except the last day of the month (see isLastDayOfMonth in the controller).
 router.post('/month-end-summary', requireAutomationSecret, adminController.runMonthEndSummaryForAllOrganizations);
 
+// One-time test-data cleanup — see the controller for why this exists.
+// ?expenseNumber=<e.g. EXP-2026-000120> required. Safe to call repeatedly.
+router.post('/delete-test-expense', requireAutomationSecret, adminController.deleteTestExpense);
+
 module.exports = router;
