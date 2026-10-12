@@ -8,7 +8,17 @@ const { getAccessibleSiteIds } = require('../middleware/siteScope');
 const { EXPENSE_STATUS } = require('../config/constants');
 const cloudinary = require('../config/cloudinary');
 
-const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf']);
+const ALLOWED_MIME = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/heic',
+  'image/heif',
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+]);
+const IMAGE_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']);
 
 async function loadExpenseWithAccess(req) {
   const expense = await Expense.findOne({ _id: req.params.expenseId, organizationId: req.organizationId });
@@ -35,7 +45,7 @@ const upload = asyncHandler(async (req, res) => {
   }
   if (!req.file) throw ApiError.badRequest('No file uploaded', 'FILE_REQUIRED');
   if (!ALLOWED_MIME.has(req.file.mimetype)) {
-    throw ApiError.badRequest('Unsupported file type. Use JPG, PNG, WEBP, or PDF.', 'UNSUPPORTED_MIME');
+    throw ApiError.badRequest('Unsupported file type. Use JPG, PNG, WEBP, HEIC, PDF, or DOC/DOCX.', 'UNSUPPORTED_MIME');
   }
 
   const checksum = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
@@ -44,7 +54,7 @@ const upload = asyncHandler(async (req, res) => {
     throw ApiError.conflict('This file was already uploaded for this expense', 'DUPLICATE_ATTACHMENT');
   }
 
-  const resourceType = req.file.mimetype === 'application/pdf' ? 'raw' : 'image';
+  const resourceType = IMAGE_MIME.has(req.file.mimetype) ? 'image' : 'raw';
   const result = await uploadBufferToCloudinary(req.file.buffer, { resourceType, folder: 'expensehub/receipts' });
 
   const attachment = await ExpenseAttachment.create({
@@ -93,7 +103,7 @@ const remove = asyncHandler(async (req, res) => {
   attachment.removedAt = new Date();
   await attachment.save();
   if (attachment.publicId) {
-    const resourceType = attachment.mimeType === 'application/pdf' ? 'raw' : 'image';
+    const resourceType = IMAGE_MIME.has(attachment.mimeType) ? 'image' : 'raw';
     cloudinary.uploader.destroy(attachment.publicId, { resource_type: resourceType }).catch(() => {});
   }
   await recordAudit({ organizationId: req.organizationId, actorId: req.user._id, action: 'ATTACHMENT_REMOVE', entityType: 'ExpenseAttachment', entityId: attachment._id, req });

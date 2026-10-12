@@ -45,7 +45,7 @@ const deleteTestExpense = asyncHandler(async (req, res) => {
   const attachments = await ExpenseAttachment.find({ expenseId: expense._id });
   for (const att of attachments) {
     if (att.publicId) {
-      const resourceType = att.mimeType === 'application/pdf' ? 'raw' : 'image';
+      const resourceType = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'].includes(att.mimeType) ? 'image' : 'raw';
       await cloudinary.uploader.destroy(att.publicId, { resource_type: resourceType }).catch(() => {});
     }
   }

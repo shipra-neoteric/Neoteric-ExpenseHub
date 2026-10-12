@@ -275,10 +275,10 @@ export default function ExpenseDrawer({ open, onClose, siteId, sites, categories
       footer={
         <div className="flex w-full items-center justify-end gap-3">
           <DrawerCancelButton onClick={async () => (await confirmBeforeClose()) && onClose()} />
-          <button type="button" onClick={saveDraft} disabled={saving || submitting} className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
+          <button type="button" onClick={saveDraft} disabled={saving || submitting || uploading} className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
             {saving && <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />}Save Draft
           </button>
-          <button type="button" onClick={submitExpense} disabled={saving || submitting} style={{ backgroundColor: getThemeColor() }} className={primaryButtonClass}>
+          <button type="button" onClick={submitExpense} disabled={saving || submitting || uploading} style={{ backgroundColor: getThemeColor() }} className={primaryButtonClass}>
             {submitting && <Loader2 className="h-4 w-4 animate-spin" />} Submit Expense
           </button>
         </div>
@@ -381,8 +381,13 @@ export default function ExpenseDrawer({ open, onClose, siteId, sites, categories
             ))}
             <label className="theme-nav-hover flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-gray-300 px-3 py-4 text-[13px] text-gray-500 dark:border-gray-600">
               {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
-              {uploading ? 'Uploading…' : 'Upload receipt (JPG, PNG, PDF)'}
-              <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden" onChange={onFileSelected} />
+              {uploading ? 'Uploading…' : 'Upload receipt (JPG, PNG, HEIC, PDF, DOC/DOCX)'}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                className="hidden"
+                onChange={onFileSelected}
+              />
             </label>
           </div>
         </div>
