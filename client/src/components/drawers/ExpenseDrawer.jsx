@@ -117,13 +117,22 @@ export default function ExpenseDrawer({ open, onClose, siteId, sites, categories
     return result.isConfirmed;
   };
 
-  const validate = () => {
+  // Returns the errors object directly (not just a pass/fail bool) so
+  // callers that need to report *which* field failed right away don't have
+  // to read back `errors` state, which wouldn't reflect this call's
+  // setErrors() yet — React state updates aren't applied synchronously.
+  const computeErrors = () => {
     const e = {};
     if (!form.categoryId) e.categoryId = 'Category is required';
     if (!form.description || form.description.trim().length < 3) e.description = 'Please describe the expense (min 3 characters)';
     if (!form.amount || amountPaise <= 0) e.amount = 'Enter a valid amount greater than zero';
     if (!form.expenseDate) e.expenseDate = 'Date is required';
     else if (new Date(form.expenseDate) > new Date()) e.expenseDate = 'Date cannot be in the future';
+    return e;
+  };
+
+  const validate = () => {
+    const e = computeErrors();
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -224,14 +233,19 @@ export default function ExpenseDrawer({ open, onClose, siteId, sites, categories
   // Attaching a receipt needs a real expense to attach it to, but the
   // uploader is shown up front (not gated behind a separate "Save Draft"
   // click) - so the first file picked silently creates the draft first.
+  // Returns { id } on success, or { fieldErrors } when validation failed —
+  // callers decide how to report fieldErrors (avoids them having to read
+  // back `errors` state, which lags one render behind this call's setErrors()).
   const ensureDraftExists = async () => {
-    if (expenseId) return expenseId;
-    if (!validate()) return null;
+    if (expenseId) return { id: expenseId };
+    const fieldErrors = computeErrors();
+    setErrors(fieldErrors);
+    if (Object.keys(fieldErrors).length > 0) return { fieldErrors };
     const { data } = await api.post('/expenses', { siteId, ...buildPayload(), idempotencyKey });
     setExpenseId(data.expense._id);
     setVersion(data.expense.version);
     savedSnapshotRef.current = serialize(form);
-    return data.expense._id;
+    return { id: data.expense._id };
   };
 
   const onFileSelected = async (e) => {
@@ -240,9 +254,10 @@ export default function ExpenseDrawer({ open, onClose, siteId, sites, categories
     setUploading(true);
     setBanner('');
     try {
-      const id = await ensureDraftExists();
+      const { id, fieldErrors } = await ensureDraftExists();
       if (!id) {
-        setBanner('Please fill in the required fields above first, then attach the receipt.');
+        const missing = Object.values(fieldErrors || {}).join(' ');
+        setBanner(missing ? `Please fix: ${missing}` : 'Please fill in the required fields above first, then attach the receipt.');
         return;
       }
       const fd = new FormData();
