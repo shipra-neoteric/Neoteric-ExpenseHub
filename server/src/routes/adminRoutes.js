@@ -22,4 +22,8 @@ router.post('/rename-site', requireAutomationSecret, adminController.renameSite)
 // Read-only — see the controller. ?site=<name> required.
 router.get('/site-status', requireAutomationSecret, adminController.siteStatus);
 
+// One-time close-and-migrate — see the controller for exactly what this does.
+// ?fromSite=<name>&toSite=<name>&toCode=<code>&managerEmail=<email> required.
+router.post('/close-site-and-migrate', requireAutomationSecret, adminController.closeSiteAndMigrate);
+
 module.exports = router;
