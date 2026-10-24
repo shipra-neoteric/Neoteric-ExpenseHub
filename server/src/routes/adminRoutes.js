@@ -19,4 +19,7 @@ router.post('/delete-test-expense', requireAutomationSecret, adminController.del
 // ?from=<old name>&to=<new name> required. Safe to call repeatedly.
 router.post('/rename-site', requireAutomationSecret, adminController.renameSite);
 
+// Read-only — see the controller. ?site=<name> required.
+router.get('/site-status', requireAutomationSecret, adminController.siteStatus);
+
 module.exports = router;

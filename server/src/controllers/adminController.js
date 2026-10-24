@@ -9,6 +9,8 @@ const FundLedgerEntry = require('../models/FundLedgerEntry');
 const Site = require('../models/Site');
 const ApiError = require('../utils/ApiError');
 const cloudinary = require('../config/cloudinary');
+const fundService = require('../services/fundService');
+const { EXPENSE_STATUS } = require('../config/constants');
 
 // Manual/external-cron entry point only — the automatic in-app trigger was
 // removed (see app.js) now that Finance sends each site's top-up by hand via
@@ -79,9 +81,41 @@ const renameSite = asyncHandler(async (req, res) => {
   res.json({ fixed: true, siteId: site._id, name: site.name });
 });
 
+// Read-only: reports a site's open-period balance and any pending/returned
+// expenses blocking a close, so a close-and-migrate can be planned with real
+// numbers instead of guessing. Not a mutation — safe to call anytime.
+const siteStatus = asyncHandler(async (req, res) => {
+  const { site: siteName } = req.query;
+  if (!siteName) throw ApiError.badRequest('site query param is required', 'SITE_REQUIRED');
+  const site = await Site.findOne({ name: siteName });
+  if (!site) throw ApiError.notFound(`Site "${siteName}" not found`);
+
+  const account = await fundService.getActiveFundAccount(site._id, site.organizationId);
+  const period = account && (await fundService.getOpenPeriod(account._id));
+  const balance = period ? await fundService.computeBalance(period._id) : null;
+
+  const blockingExpenses = await Expense.find({
+    siteId: site._id,
+    status: { $in: [EXPENSE_STATUS.PENDING_APPROVAL, EXPENSE_STATUS.RETURNED] },
+  })
+    .select('expenseNumber status amountPaise description')
+    .lean();
+
+  res.json({
+    siteId: site._id,
+    siteStatus: site.status,
+    fundAccountStatus: account?.status || null,
+    periodId: period?._id || null,
+    periodLabel: period?.label || null,
+    balance,
+    blockingExpenses,
+  });
+});
+
 module.exports = {
   runMonthlyRolloverForAllOrganizations,
   runMonthEndSummaryForAllOrganizations,
   deleteTestExpense,
   renameSite,
+  siteStatus,
 };
