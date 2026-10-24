@@ -12,6 +12,7 @@ const cloudinary = require('../config/cloudinary');
 const fundService = require('../services/fundService');
 const User = require('../models/User');
 const SiteUserAssignment = require('../models/SiteUserAssignment');
+const ExpensePolicy = require('../models/ExpensePolicy');
 const { EXPENSE_STATUS, PERMISSIONS } = require('../config/constants');
 
 // Manual/external-cron entry point only — the automatic in-app trigger was
@@ -220,6 +221,31 @@ const closeSiteAndMigrate = asyncHandler(async (req, res) => {
   res.json({ fixed: true, toSiteId: toSite._id, steps });
 });
 
+// One-time: sets a site's standard monthly allocation (what "Total Funded"
+// shows, and what future rollovers/top-ups target). Takes effect from the
+// next rollover/transfer — doesn't touch the site's already-open period or
+// any past ledger entries. Safe to call more than once.
+const setStandardAmount = asyncHandler(async (req, res) => {
+  const { site: siteName, amount } = req.query;
+  if (!siteName || !amount) throw ApiError.badRequest('site and amount query params are required', 'PARAMS_REQUIRED');
+  const amountPaise = Math.round(parseFloat(amount) * 100);
+  if (!Number.isInteger(amountPaise) || amountPaise <= 0) throw ApiError.badRequest('amount must be a positive number', 'INVALID_AMOUNT');
+
+  const site = await Site.findOne({ name: siteName });
+  if (!site) throw ApiError.notFound(`Site "${siteName}" not found`);
+
+  const actor = await User.findOne({ organizationId: site.organizationId, isActive: true, permissions: PERMISSIONS.MASTER_MANAGE });
+  if (!actor) throw ApiError.badRequest('No active Master Admin to attribute this change to', 'NO_SYSTEM_ACTOR');
+
+  const policy = await ExpensePolicy.findOneAndUpdate(
+    { organizationId: site.organizationId, siteId: site._id },
+    { $set: { defaultAllocationPaise: amountPaise, updatedBy: actor._id }, $setOnInsert: { organizationId: site.organizationId, siteId: site._id } },
+    { new: true, upsert: true }
+  );
+
+  res.json({ fixed: true, siteId: site._id, defaultAllocationPaise: policy.defaultAllocationPaise });
+});
+
 module.exports = {
   runMonthlyRolloverForAllOrganizations,
   runMonthEndSummaryForAllOrganizations,
@@ -227,4 +253,5 @@ module.exports = {
   renameSite,
   siteStatus,
   closeSiteAndMigrate,
+  setStandardAmount,
 };

@@ -26,4 +26,7 @@ router.get('/site-status', requireAutomationSecret, adminController.siteStatus);
 // ?fromSite=<name>&toSite=<name>&toCode=<code>&managerEmail=<email> required.
 router.post('/close-site-and-migrate', requireAutomationSecret, adminController.closeSiteAndMigrate);
 
+// One-time policy update — see the controller. ?site=<name>&amount=<rupees> required.
+router.post('/set-standard-amount', requireAutomationSecret, adminController.setStandardAmount);
+
 module.exports = router;
