@@ -15,4 +15,8 @@ router.post('/month-end-summary', requireAutomationSecret, adminController.runMo
 // ?expenseNumber=<e.g. EXP-2026-000120> required. Safe to call repeatedly.
 router.post('/delete-test-expense', requireAutomationSecret, adminController.deleteTestExpense);
 
+// One-time rename — see the controller for why this exists.
+// ?from=<old name>&to=<new name> required. Safe to call repeatedly.
+router.post('/rename-site', requireAutomationSecret, adminController.renameSite);
+
 module.exports = router;

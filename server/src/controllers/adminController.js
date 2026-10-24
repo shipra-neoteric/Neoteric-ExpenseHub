@@ -6,6 +6,7 @@ const ExpenseAttachment = require('../models/ExpenseAttachment');
 const ExpenseApprovalAction = require('../models/ExpenseApprovalAction');
 const AuditEvent = require('../models/AuditEvent');
 const FundLedgerEntry = require('../models/FundLedgerEntry');
+const Site = require('../models/Site');
 const ApiError = require('../utils/ApiError');
 const cloudinary = require('../config/cloudinary');
 
@@ -58,8 +59,29 @@ const deleteTestExpense = asyncHandler(async (req, res) => {
   res.json({ fixed: true, deletedExpenseNumber: expenseNumber, attachmentsRemoved: attachments.length });
 });
 
+// One-time rename: history (expenses, ledger, reports) all stay linked by
+// siteId, so renaming the Site document is purely cosmetic and doesn't
+// affect any balance/calculation. Safe to call more than once — no-ops once
+// the site already has the new name.
+const renameSite = asyncHandler(async (req, res) => {
+  const { from, to } = req.query;
+  if (!from || !to) throw ApiError.badRequest('from and to query params are required', 'SITE_NAMES_REQUIRED');
+
+  const site = await Site.findOne({ name: from });
+  if (!site) {
+    const already = await Site.findOne({ name: to });
+    if (already) return res.json({ skipped: true, reason: 'ALREADY_RENAMED' });
+    throw ApiError.notFound(`Site "${from}" not found`);
+  }
+
+  site.name = to;
+  await site.save();
+  res.json({ fixed: true, siteId: site._id, name: site.name });
+});
+
 module.exports = {
   runMonthlyRolloverForAllOrganizations,
   runMonthEndSummaryForAllOrganizations,
   deleteTestExpense,
+  renameSite,
 };
