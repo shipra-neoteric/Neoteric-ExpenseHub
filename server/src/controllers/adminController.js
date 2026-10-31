@@ -246,6 +246,23 @@ const setStandardAmount = asyncHandler(async (req, res) => {
   res.json({ fixed: true, siteId: site._id, defaultAllocationPaise: policy.defaultAllocationPaise });
 });
 
+// One-time: sets backdateLimitDays on the org-wide default policy AND every
+// per-site policy override. Needed because getEffectivePolicy returns a
+// site's own policy document whole (not merged field-by-field) when one
+// exists, so changing only the org default would silently miss any site
+// that already has its own override row (e.g. one created by
+// setStandardAmount). Safe to call more than once.
+const setBackdateLimitDays = asyncHandler(async (req, res) => {
+  const { days } = req.query;
+  const backdateLimitDays = parseInt(days, 10);
+  if (!Number.isInteger(backdateLimitDays) || backdateLimitDays <= 0) {
+    throw ApiError.badRequest('days must be a positive integer', 'INVALID_DAYS');
+  }
+
+  const result = await ExpensePolicy.updateMany({}, { $set: { backdateLimitDays } });
+  res.json({ fixed: true, backdateLimitDays, policiesUpdated: result.modifiedCount });
+});
+
 module.exports = {
   runMonthlyRolloverForAllOrganizations,
   runMonthEndSummaryForAllOrganizations,

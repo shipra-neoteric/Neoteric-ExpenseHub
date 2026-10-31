@@ -29,4 +29,7 @@ router.post('/close-site-and-migrate', requireAutomationSecret, adminController.
 // One-time policy update — see the controller. ?site=<name>&amount=<rupees> required.
 router.post('/set-standard-amount', requireAutomationSecret, adminController.setStandardAmount);
 
+// One-time policy update — see the controller. ?days=<n> required.
+router.post('/set-backdate-limit-days', requireAutomationSecret, adminController.setBackdateLimitDays);
+
 module.exports = router;
