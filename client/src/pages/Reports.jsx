@@ -89,6 +89,7 @@ export default function Reports() {
       exportSiteExpensesPdf({
         expenses: data.expenses,
         totals: data.totals,
+        bySite: data.bySite,
         filters: { siteNames, summary: parts.join(', ') },
         generatedBy: user?.name || '',
       });
@@ -159,6 +160,34 @@ export default function Reports() {
             <SummaryCard label="Pending Amount" value={paiseToInr(summary.totals.pendingAmount)} />
             <SummaryCard label="Expense Rows" value={summary.expenses.length} />
           </div>
+
+          {summary.bySite?.length > 1 && (
+            <div className="rounded-xl border border-gray-200 bg-white p-4 shadow dark:border-gray-700 dark:bg-gray-800">
+              <h2 className="mb-3 text-sm font-bold text-gray-900 dark:text-white">Site-wise Summary</h2>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[480px] text-sm">
+                  <thead>
+                    <tr className="text-left text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                      <th className="pb-2">Site</th>
+                      <th className="pb-2">Approved Spend</th>
+                      <th className="pb-2">Pending</th>
+                      <th className="pb-2">Expenses</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                    {summary.bySite.map((s) => (
+                      <tr key={s.siteId}>
+                        <td className="py-2 font-medium text-gray-900 dark:text-white">{s.siteName}</td>
+                        <td className="py-2 text-gray-700 dark:text-gray-300">{paiseToInr(s.approvedSpend)}</td>
+                        <td className="py-2 text-gray-700 dark:text-gray-300">{paiseToInr(s.pendingAmount)}</td>
+                        <td className="py-2 text-gray-700 dark:text-gray-300">{s.count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           <div className="rounded-xl border border-gray-200 bg-white p-4 shadow dark:border-gray-700 dark:bg-gray-800">
             <h2 className="mb-3 text-sm font-bold text-gray-900 dark:text-white">Category-wise Spend</h2>

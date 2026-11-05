@@ -7,7 +7,7 @@ import { paiseToInr } from './format';
 // reliable in the default PDF font), filename `{id}.pdf`.
 const NAVY = [26, 54, 93];
 
-export function exportSiteExpensesPdf({ expenses, totals, filters, generatedBy, appTimezone = 'Asia/Kolkata' }) {
+export function exportSiteExpensesPdf({ expenses, totals, bySite = [], filters, generatedBy, appTimezone = 'Asia/Kolkata' }) {
   const doc = new jsPDF();
 
   doc.setFillColor(...NAVY);
@@ -48,8 +48,30 @@ export function exportSiteExpensesPdf({ expenses, totals, filters, generatedBy, 
   });
   y += 3;
 
+  if (bySite.length > 1) {
+    doc.setFillColor(...NAVY);
+    doc.rect(10, y, 190, 8, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(10);
+    doc.text('Site-wise Summary', 12, y + 5.5);
+    y += 12;
+
+    doc.setTextColor(30, 30, 30);
+    doc.setFontSize(9);
+    bySite.forEach((s) => {
+      doc.text(
+        `${s.siteName}: Approved Rs. ${paiseToInr(s.approvedSpend, { withSymbol: false })} | Pending Rs. ${paiseToInr(s.pendingAmount, { withSymbol: false })} | ${s.count} expense(s)`,
+        12,
+        y
+      );
+      y += 5;
+    });
+    y += 3;
+  }
+
   const rows = expenses.map((e) => [
     e.expenseNumber,
+    e.siteId?.name || '',
     new Date(e.expenseDate).toLocaleDateString('en-IN'),
     e.categorySnapshot?.name || '',
     e.description,
@@ -60,7 +82,7 @@ export function exportSiteExpensesPdf({ expenses, totals, filters, generatedBy, 
 
   autoTable(doc, {
     startY: y,
-    head: [['Number', 'Date', 'Category', 'Description', 'Amount', 'Mode', 'Status']],
+    head: [['Number', 'Site', 'Date', 'Category', 'Description', 'Amount', 'Mode', 'Status']],
     body: rows,
     headStyles: { fillColor: NAVY, textColor: 255 },
     styles: { fontSize: 8 },

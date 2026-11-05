@@ -26,23 +26,38 @@ async function buildReportData({ organizationId, siteIds, dateFrom, dateTo, cate
     pendingAmount: 0,
     categoryWise: {},
   };
+  const siteTotals = new Map();
   for (const e of expenses) {
     // Matches fundService.computeBalance's definition: a REJECTED expense
     // still posted a real ledger deduction (the cash was already spent
     // regardless of the review outcome), so it counts as spend here too —
     // otherwise this report's total silently diverged from the Dashboard
     // and Funds page figures for the same period.
-    if ([EXPENSE_STATUS.APPROVED, EXPENSE_STATUS.REJECTED].includes(e.status)) totals.approvedSpend += e.amountPaise;
-    if (e.status === EXPENSE_STATUS.PENDING_APPROVAL) totals.pendingAmount += e.amountPaise;
+    const siteId = String(e.siteId?._id || e.siteId || '');
+    if (!siteTotals.has(siteId)) {
+      siteTotals.set(siteId, { siteId, siteName: e.siteId?.name || 'Unknown', approvedSpend: 0, pendingAmount: 0, count: 0 });
+    }
+    const siteTotal = siteTotals.get(siteId);
+    siteTotal.count += 1;
+
+    if ([EXPENSE_STATUS.APPROVED, EXPENSE_STATUS.REJECTED].includes(e.status)) {
+      totals.approvedSpend += e.amountPaise;
+      siteTotal.approvedSpend += e.amountPaise;
+    }
+    if (e.status === EXPENSE_STATUS.PENDING_APPROVAL) {
+      totals.pendingAmount += e.amountPaise;
+      siteTotal.pendingAmount += e.amountPaise;
+    }
     if ([EXPENSE_STATUS.APPROVED, EXPENSE_STATUS.REJECTED, EXPENSE_STATUS.PENDING_APPROVAL].includes(e.status)) {
       const key = e.categorySnapshot?.name || 'Other';
       totals.categoryWise[key] = (totals.categoryWise[key] || 0) + e.amountPaise;
     }
   }
-  return { expenses, totals };
+  const bySite = [...siteTotals.values()].sort((a, b) => a.siteName.localeCompare(b.siteName));
+  return { expenses, totals, bySite };
 }
 
-function toCsv({ expenses, totals }) {
+function toCsv({ expenses, totals, bySite = [] }) {
   const header = ['Expense Number', 'Site', 'Date', 'Category', 'Description', 'Merchant', 'Amount (Rs.)', 'Payment Mode', 'Paid By', 'Submitted By', 'Status'];
   const rows = expenses.map((e) => [
     e.expenseNumber,
@@ -59,6 +74,14 @@ function toCsv({ expenses, totals }) {
   ]);
   const lines = [header.join(','), ...rows.map((r) => r.join(','))];
   lines.push('');
+  if (bySite.length > 1) {
+    lines.push('Site-wise Totals');
+    lines.push(['Site', 'Approved Spend (Rs.)', 'Pending Amount (Rs.)', 'Expense Count'].join(','));
+    for (const s of bySite) {
+      lines.push([csvEscape(s.siteName), paiseToRupeesString(s.approvedSpend), paiseToRupeesString(s.pendingAmount), s.count].join(','));
+    }
+    lines.push('');
+  }
   lines.push(`Approved Spend,,,,,,${paiseToRupeesString(totals.approvedSpend)}`);
   lines.push(`Pending Amount,,,,,,${paiseToRupeesString(totals.pendingAmount)}`);
   lines.push(`Generated At,${new Date().toISOString()},Timezone,${env.appTimezone}`);
@@ -73,7 +96,7 @@ function csvEscape(value) {
 
 const NAVY = '#0B1E3F';
 
-function streamPdf({ expenses, totals }, { title, filters, generatedBy }, res) {
+function streamPdf({ expenses, totals, bySite = [] }, { title, filters, generatedBy }, res) {
   const doc = new PDFDocument({ margin: 40, size: 'A4' });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${title.replace(/\s+/g, '_')}.pdf"`);
@@ -103,10 +126,19 @@ function streamPdf({ expenses, totals }, { title, filters, generatedBy }, res) {
   }
   doc.moveDown();
 
+  if (bySite.length > 1) {
+    doc.fillColor(NAVY).fontSize(12).text('Site-wise Summary', { underline: true });
+    doc.fillColor('#000000').fontSize(10);
+    for (const s of bySite) {
+      doc.text(`${s.siteName}: Approved Rs. ${paiseToRupeesString(s.approvedSpend)} | Pending Rs. ${paiseToRupeesString(s.pendingAmount)} | ${s.count} expense(s)`);
+    }
+    doc.moveDown();
+  }
+
   doc.fillColor(NAVY).fontSize(12).text('Expense Detail', { underline: true });
   doc.moveDown(0.3);
-  const colWidths = [70, 55, 75, 140, 60, 60, 70];
-  const headers = ['Number', 'Date', 'Category', 'Description', 'Amount', 'Mode', 'Status'];
+  const colWidths = [65, 60, 50, 65, 100, 55, 55, 55];
+  const headers = ['Number', 'Site', 'Date', 'Category', 'Description', 'Amount', 'Mode', 'Status'];
   let y = doc.y;
   doc.fontSize(8).fillColor('#FFFFFF');
   let x = 40;
@@ -127,6 +159,7 @@ function streamPdf({ expenses, totals }, { title, filters, generatedBy }, res) {
     x = 40;
     const cells = [
       e.expenseNumber,
+      e.siteId?.name || '',
       new Date(e.expenseDate).toISOString().slice(0, 10),
       e.categorySnapshot?.name || '',
       e.description,
