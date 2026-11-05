@@ -1,5 +1,6 @@
 const PDFDocument = require('pdfkit');
 const Expense = require('../models/Expense');
+const ExpenseAttachment = require('../models/ExpenseAttachment');
 const { paiseToRupeesString } = require('../utils/money');
 const { EXPENSE_STATUS } = require('../config/constants');
 const env = require('../config/env');
@@ -54,6 +55,23 @@ async function buildReportData({ organizationId, siteIds, dateFrom, dateTo, cate
     }
   }
   const bySite = [...siteTotals.values()].sort((a, b) => a.siteName.localeCompare(b.siteName));
+
+  const attachments = await ExpenseAttachment.find({
+    expenseId: { $in: expenses.map((e) => e._id) },
+    removedAt: null,
+  })
+    .select('expenseId url originalName mimeType')
+    .lean();
+  const attachmentsByExpense = new Map();
+  for (const a of attachments) {
+    const key = String(a.expenseId);
+    if (!attachmentsByExpense.has(key)) attachmentsByExpense.set(key, []);
+    attachmentsByExpense.get(key).push({ url: a.url, originalName: a.originalName, mimeType: a.mimeType });
+  }
+  for (const e of expenses) {
+    e.attachments = attachmentsByExpense.get(String(e._id)) || [];
+  }
+
   return { expenses, totals, bySite };
 }
 

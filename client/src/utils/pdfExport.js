@@ -7,7 +7,21 @@ import { paiseToInr } from './format';
 // reliable in the default PDF font), filename `{id}.pdf`.
 const NAVY = [26, 54, 93];
 
-export function exportSiteExpensesPdf({ expenses, totals, bySite = [], filters, generatedBy, appTimezone = 'Asia/Kolkata' }) {
+const IMAGE_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+async function urlToDataUrl(url) {
+  const res = await fetch(url, { mode: 'cors' });
+  if (!res.ok) throw new Error(`Failed to fetch ${url}`);
+  const blob = await res.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+export async function exportSiteExpensesPdf({ expenses, totals, bySite = [], filters, generatedBy, appTimezone = 'Asia/Kolkata', includeReceipts = false }) {
   const doc = new jsPDF();
 
   doc.setFillColor(...NAVY);
@@ -88,6 +102,33 @@ export function exportSiteExpensesPdf({ expenses, totals, bySite = [], filters, 
     styles: { fontSize: 8 },
     theme: 'grid',
   });
+
+  if (includeReceipts) {
+    const withReceipts = expenses.filter((e) => e.attachments?.length);
+    for (const e of withReceipts) {
+      for (const att of e.attachments) {
+        doc.addPage();
+        doc.setFontSize(11);
+        doc.setTextColor(30, 30, 30);
+        doc.text(`Receipt — ${e.expenseNumber} (${att.originalName})`, 10, 12);
+        if (IMAGE_MIME.has(att.mimeType)) {
+          try {
+            const dataUrl = await urlToDataUrl(att.url);
+            const format = att.mimeType === 'image/png' ? 'PNG' : 'JPEG';
+            doc.addImage(dataUrl, format, 10, 18, 190, 0);
+          } catch (err) {
+            doc.setFontSize(9);
+            doc.text(`Could not load image. Open directly: ${att.url}`, 10, 25);
+          }
+        } else {
+          doc.setFontSize(9);
+          doc.text(`This file type (${att.mimeType}) can't be embedded. Open directly:`, 10, 22);
+          doc.setTextColor(30, 60, 150);
+          doc.textWithLink(att.url, 10, 28, { url: att.url });
+        }
+      }
+    }
+  }
 
   doc.save('site-expenses-report.pdf');
 }

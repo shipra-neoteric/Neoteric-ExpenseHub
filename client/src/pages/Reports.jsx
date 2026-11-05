@@ -34,6 +34,7 @@ export default function Reports() {
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState('');
   const [error, setError] = useState('');
+  const [includeReceipts, setIncludeReceipts] = useState(false);
 
   const buildParams = () => {
     const params = {};
@@ -86,12 +87,13 @@ export default function Reports() {
       if (filters.status) parts.push(`status: ${STATUS_META[filters.status]?.label}`);
       if (filters.category) parts.push('category filtered');
       const { exportSiteExpensesPdf } = await import('../utils/pdfExport');
-      exportSiteExpensesPdf({
+      await exportSiteExpensesPdf({
         expenses: data.expenses,
         totals: data.totals,
         bySite: data.bySite,
         filters: { siteNames, summary: parts.join(', ') },
         generatedBy: user?.name || '',
+        includeReceipts,
       });
     } catch (err) {
       setError(apiErrorMessage(err));
@@ -128,6 +130,13 @@ export default function Reports() {
             Apply Filters
           </button>
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+          <input type="checkbox" checked={includeReceipts} onChange={(e) => setIncludeReceipts(e.target.checked)} />
+          Include receipts in PDF (adds a page per attached receipt)
+        </label>
       </div>
 
       <div className="flex flex-wrap gap-2">
